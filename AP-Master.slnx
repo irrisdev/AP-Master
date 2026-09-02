@@ -4,4 +4,5 @@
     <Deploy />
   </Project>
   <Project Path="AP-Master.Server/AP-Master.Server.csproj" />
+  <Project Path="AP-Server-Tests/AP-Server-Tests.csproj" />
 </Solution>
