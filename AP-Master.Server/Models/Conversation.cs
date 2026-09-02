@@ -1,6 +1,39 @@
-﻿namespace AP_Master.Server.Models
+﻿namespace AP_Master.Server.Models;
+
+public enum ConversationStatus
 {
-    public class Conversation
-    {
-    }
+    Active,
+    Troubleshooting,
+    Resolved,
+    Escalated
+}
+public enum RequestType
+{
+    CustomerEnquiry,
+    TechnicalSupport,
+    ServiceIssue,
+    Complaint
+}
+
+public class Conversation
+{
+    public int Id { get; set; }
+
+    public int CustomerId { get; set; }
+
+    public Customer Customer { get; set; } = null!;
+
+    public RequestType RequestType { get; set; }
+
+    public ConversationStatus Status { get; set; } = ConversationStatus.Active;
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    public ICollection<Message> Messages { get; set; } = new List<Message>();
+
+    public ICollection<SupportTicket> SupportTickets { get; set; } = new List<SupportTicket>();
+
+    public ICollection<Complaint> Complaints { get; set; } = new List<Complaint>();
 }
