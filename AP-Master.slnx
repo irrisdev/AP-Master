@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="ap-master.client/ap-master.client.esproj">
+    <Build />
+    <Deploy />
+  </Project>
+  <Project Path="AP-Master.Server/AP-Master.Server.csproj" />
+</Solution>
