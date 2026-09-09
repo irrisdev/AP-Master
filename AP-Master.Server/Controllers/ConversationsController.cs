@@ -1,12 +1,10 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 
 namespace AP_Master.Server.Controllers
 {
-    public class ConversationsController : Controller
+    [Route("api/[controller]")]
+    [ApiController]
+    public class ConversationsController : ControllerBase
     {
-        public IActionResult Index()
-        {
-            return View();
-        }
     }
 }
