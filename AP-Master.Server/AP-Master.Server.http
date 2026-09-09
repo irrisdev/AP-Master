@@ -1,6 +1,3 @@
 @AP_Master.Server_HostAddress = http://localhost:5056
 
-GET {{AP_Master.Server_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###
+### Requests are added here as endpoints land.
