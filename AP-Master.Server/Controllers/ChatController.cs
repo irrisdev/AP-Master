@@ -20,14 +20,9 @@ namespace AP_Master.Server.Controllers
         public async Task<ActionResult<ChatResponse>> SendMessage([FromBody] ChatRequest request, CancellationToken cancellationToken)
         {
 
-            throw new NotImplementedException();
+            var response = await _chatService.ProcessMessageAsync(request, cancellationToken);
 
-            //var response =
-            //    await _chatService.ProcessMessageAsync(
-            //        request,
-            //        cancellationToken);
-
-            //return Ok(response);
+            return Ok(response);
         }
     }
 }

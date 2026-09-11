@@ -1,16 +1,40 @@
-﻿using AP_Master.Server.Models;
+﻿using AP_Master.Server.Data;
+using AP_Master.Server.Models;
 
 namespace AP_Master.Server.Services;
 
 public interface ITicketService
 {
-    Task<SupportTicket> CreateTicketAsync(int customerId, int? conversationId, string description, CancellationToken cancellationToken = default);
+    Task<SupportTicket> CreateTicketAsync(
+        int customerId, 
+        int? conversationId, 
+        string description, 
+        CancellationToken cancellationToken = default);
 }
 
 public class TicketService : ITicketService
 {
-    public Task<SupportTicket> CreateTicketAsync(int customerId, int? conversationId, string description, CancellationToken cancellationToken = default)
+    private readonly TelegroupDbContext _dbContext;
+    public TicketService(TelegroupDbContext dbContext)
     {
-        throw new NotImplementedException();
+        _dbContext = dbContext;
+    }
+    public async Task<SupportTicket> CreateTicketAsync(int customerId, int? conversationId, string description, CancellationToken cancellationToken = default)
+    {
+        var ticket = new SupportTicket
+        {
+            CustomerId = customerId,
+            ConversationId = conversationId,
+            Description = description,
+            Status = TicketStatus.AwaitingTechnician,
+        };
+
+        await _dbContext.SupportTickets.AddAsync(ticket, cancellationToken);
+
+        await _dbContext.SaveChangesAsync();
+
+        return ticket;
+
+
     }
 }
