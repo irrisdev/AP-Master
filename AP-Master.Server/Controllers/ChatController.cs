@@ -1,4 +1,4 @@
-﻿using AP_Master.Server.DTOs;
+﻿using AP_Master.Server.DTOs.Chat;
 using AP_Master.Server.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;

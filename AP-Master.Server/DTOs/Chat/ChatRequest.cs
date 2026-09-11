@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace AP_Master.Server.DTOs;
+namespace AP_Master.Server.DTOs.Chat;
 
 public class ChatRequest
 {

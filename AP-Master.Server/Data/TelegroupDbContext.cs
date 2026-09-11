@@ -34,6 +34,10 @@ public class TelegroupDbContext : DbContext
             .IsRequired()
             .HasMaxLength(200);
 
+        modelBuilder.Entity<Customer>()
+            .HasIndex(c => c.Email)
+            .IsUnique();
+
         // Customer -> Conversations
         modelBuilder.Entity<Conversation>()
             .HasOne(c => c.Customer)

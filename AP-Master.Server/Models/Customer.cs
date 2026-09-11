@@ -1,4 +1,7 @@
-﻿namespace AP_Master.Server.Models;
+﻿using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
+
+namespace AP_Master.Server.Models;
 
 public class Customer
 {
@@ -9,6 +12,7 @@ public class Customer
     public string Email { get; set; } = string.Empty;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<Conversation> Conversations { get; set; } = new List<Conversation>();
 

@@ -2,6 +2,7 @@
 
 
 using AP_Master.Server.Data;
+using AP_Master.Server.Development;
 using AP_Master.Server.Properties;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
@@ -56,8 +57,9 @@ if (app.Environment.IsDevelopment())
     using (var scope = app.Services.CreateScope())
     {
         var dbContext = scope.ServiceProvider.GetRequiredService<TelegroupDbContext>();
-        dbContext.Database.EnsureCreated();
+        //dbContext.Database.EnsureCreated();
         dbContext.Database.Migrate();
+        await DbSeeder.SeedAsync(dbContext);
     }
 
 }
