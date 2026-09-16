@@ -1,0 +1,241 @@
+.dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.dashboard__subtitle {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    margin-top: var(--space-1);
+    max-width: 60ch;
+}
+
+/* A detail view sits beside the list on wide screens and below it on narrow. */
+.dashboard__split {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    gap: var(--space-4);
+    align-items: start;
+}
+
+@media (max-width: 900px) {
+    .dashboard__split {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    min-width: 0;
+}
+
+.panel__header,
+.detail__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+/* -------------------------------------------------------------------- tabs */
+
+.tabs {
+    display: flex;
+    gap: var(--space-1);
+    border-bottom: 1px solid var(--border);
+}
+
+.tabs__tab {
+    padding: var(--space-2) var(--space-4);
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: none;
+    font: inherit;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.tabs__tab:hover {
+    color: var(--text);
+}
+
+.tabs__tab--active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.dashboard__panel:focus-visible {
+    outline-offset: 4px;
+}
+
+/* ------------------------------------------------------------------ filters */
+
+.filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+}
+
+.field--inline {
+    width: auto;
+    min-width: 160px;
+}
+
+/* ------------------------------------------------------------------- table */
+
+/* Wide tables scroll inside their own box rather than the page. */
+.table-scroll {
+    overflow-x: auto;
+    margin-inline: calc(var(--space-4) * -1);
+    padding-inline: var(--space-4);
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+}
+
+.table th,
+.table td {
+    text-align: left;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+
+.table thead th {
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.table__summary {
+    max-width: 32ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.table__row--selected {
+    background: var(--accent-soft);
+}
+
+.link-button {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+    text-align: left;
+}
+
+.link-button:hover {
+    text-decoration: underline;
+}
+
+/* ------------------------------------------------------------------- cards */
+
+.card-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface-alt);
+}
+
+.card--selected {
+    border-color: var(--accent);
+}
+
+.card__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.card__body {
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+}
+
+.card__badges {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.card__meta {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------------ detail */
+
+.detail__facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: var(--space-3);
+    margin: 0;
+}
+
+.detail__facts dt {
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.detail__facts dd {
+    margin: var(--space-1) 0 0;
+    font-size: var(--text-sm);
+}
+
+.detail__description {
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--surface-alt);
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+}
+
+.detail__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.thread {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    max-height: 420px;
+    overflow-y: auto;
+}
