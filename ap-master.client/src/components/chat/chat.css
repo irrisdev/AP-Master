@@ -2,7 +2,7 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
-    height: 100%;
+    flex: 1;
     min-height: 0;
 }
 
@@ -27,9 +27,10 @@
     font-size: var(--text-sm);
 }
 
+/* The only thing in the chat that scrolls. min-height: 0 lets flex shrink it. */
 .message-list {
     flex: 1;
-    min-height: 320px;
+    min-height: 0;
     overflow-y: auto;
     display: flex;
     flex-direction: column;

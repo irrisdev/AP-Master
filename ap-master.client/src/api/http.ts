@@ -24,6 +24,17 @@ interface ProblemDetails {
     errors?: Record<string, string[]>;
 }
 
+/**
+ * A message for a failure that carried no ProblemDetails body. `statusText` is
+ * not a safe fallback: it is empty over HTTP/2 and through some proxies.
+ */
+function describeStatus(status: number): string {
+    if (status === 404) return 'That is not available.';
+    if (status === 401 || status === 403) return 'You are not allowed to do that.';
+    if (status >= 500) return 'The server ran into a problem.';
+    return `The request failed (${status}).`;
+}
+
 /** Flattens a validation `errors` map into one readable line. */
 function describeErrors(errors: Record<string, string[]> | undefined): string | undefined {
     if (!errors) return undefined;
@@ -73,7 +84,7 @@ export class HttpApiClient implements ApiClient {
                 // Body was not JSON; fall back to the status text below.
             }
             throw new ApiError(
-                problem.title ?? response.statusText ?? 'Request failed.',
+                problem.title ?? describeStatus(response.status),
                 response.status,
                 problem.detail ?? describeErrors(problem.errors),
                 problem.traceId,

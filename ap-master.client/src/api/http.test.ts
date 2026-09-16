@@ -65,6 +65,20 @@ describe('HttpApiClient error handling', () => {
         expect(error.isRetryable).toBe(false);
     });
 
+    it('still says something for a bodiless 404 with no status text', async () => {
+        // What an unrouted /api path looks like through the Vite proxy.
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue(new Response(null, { status: 404, statusText: '' })),
+        );
+
+        const error = await failure(new HttpApiClient());
+
+        expect(error.status).toBe(404);
+        expect(error.message).toBe('That is not available.');
+        expect(error.isRetryable).toBe(false);
+    });
+
     it('reports an unreachable server as status 0', async () => {
         vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
 

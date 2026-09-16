@@ -119,8 +119,13 @@ body {
     color: var(--text);
 }
 
+/*
+ * The app is a fixed viewport-height frame: header on top, main below. Main is
+ * the scroll container, so a view like chat can pin its composer to the bottom
+ * and scroll only its transcript, instead of growing the page under the user.
+ */
 #root {
-    min-height: 100svh;
+    height: 100svh;
     display: flex;
     flex-direction: column;
 }
