@@ -1,12 +1,10 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 
 namespace AP_Master.Server.Controllers
 {
-    public class TicketsController : Controller
+    [Route("api/[controller]")]
+    [ApiController]
+    public class TicketsController : ControllerBase
     {
-        public IActionResult Index()
-        {
-            return View();
-        }
     }
 }

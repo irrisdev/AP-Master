@@ -1,111 +1,187 @@
+/*
+ * Design tokens and base styles.
+ *
+ * Every colour, space and radius used anywhere in the app is defined here and
+ * referenced through a custom property. Nothing downstream ships a literal hex
+ * value, which is what makes the dark scheme below a redefinition of tokens
+ * rather than a second stylesheet.
+ */
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+    color-scheme: light dark;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+    /* Surfaces and text */
+    --bg: #f6f7fb;
+    --surface: #ffffff;
+    --surface-alt: #f0f2f8;
+    --border: #dfe3ed;
+    --border-strong: #c3c9d9;
+    --text: #1b1f2a;
+    --text-muted: #5a6376;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+    /* Brand */
+    --accent: #4c39d4;
+    --accent-hover: #3d2cb8;
+    --accent-soft: #ece9fb;
+    --on-accent: #ffffff;
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+    /* Status */
+    --danger: #b3261e;
+    --danger-soft: #fdecea;
+    --warning: #8a5300;
+    --warning-soft: #fff3d6;
+    --success: #12664f;
+    --success-soft: #e2f5ee;
+    --info: #0b5a8a;
+    --info-soft: #e4f1fa;
+
+    /* Spacing scale */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 48px;
+
+    /* Radii */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --radius-full: 999px;
+
+    /* Type scale */
+    --text-xs: 12px;
+    --text-sm: 13px;
+    --text-md: 15px;
+    --text-lg: 18px;
+    --text-xl: 22px;
+    --text-2xl: 28px;
+
+    /* Elevation */
+    --shadow-sm: 0 1px 2px rgba(16, 20, 34, 0.06), 0 1px 3px rgba(16, 20, 34, 0.08);
+    --shadow-md: 0 4px 12px rgba(16, 20, 34, 0.1), 0 2px 4px rgba(16, 20, 34, 0.06);
+
+    /* Fonts */
+    --font-sans: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+    /* Layout */
+    --content-max: 1120px;
+    --header-height: 60px;
+
+    font: var(--text-md) / 1.5 var(--font-sans);
+    color: var(--text);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+    :root {
+        --bg: #12141a;
+        --surface: #1a1d26;
+        --surface-alt: #232733;
+        --border: #2e3341;
+        --border-strong: #414859;
+        --text: #e8eaf0;
+        --text-muted: #a3abbd;
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+        --accent: #a596ff;
+        --accent-hover: #bcb1ff;
+        --accent-soft: #262244;
+        --on-accent: #14121f;
+
+        --danger: #ff9d94;
+        --danger-soft: #3a1c19;
+        --warning: #ffc95c;
+        --warning-soft: #3a2c10;
+        --success: #6fd7b6;
+        --success-soft: #12302a;
+        --info: #7fc4ef;
+        --info-soft: #12293a;
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+        --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45);
+    }
 }
 
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
 }
 
 body {
-  margin: 0;
+    margin: 0;
+    min-height: 100svh;
+    background: var(--bg);
+    color: var(--text);
+}
+
+/*
+ * The app is a fixed viewport-height frame: header on top, main below. Main is
+ * the scroll container, so a view like chat can pin its composer to the bottom
+ * and scroll only its transcript, instead of growing the page under the user.
+ */
+#root {
+    height: 100svh;
+    display: flex;
+    flex-direction: column;
 }
 
 h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+h2,
+h3 {
+    margin: 0;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--text);
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
+h1 { font-size: var(--text-xl); }
+h2 { font-size: var(--text-lg); }
+h3 { font-size: var(--text-md); }
+
 p {
-  margin: 0;
-}
-
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+    margin: 0;
 }
 
 code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+}
+
+/*
+ * One focus treatment for the whole app. :focus-visible keeps it off mouse
+ * clicks but guarantees it for keyboard users.
+ */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
+
+/* Respect a reduced-motion preference everywhere rather than per component. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
 }
