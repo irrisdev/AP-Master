@@ -1,10 +1,10 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace AP_Master.Server.DTOs;
+namespace AP_Master.Server.DTOs.Chat;
 
 public class ChatRequest
 {
-    [Required]
+    [Required, Range(1, int.MaxValue)]
     public int CustomerId { get; set; }
 
     public int? ConversationId { get; set; }

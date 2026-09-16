@@ -1,4 +1,4 @@
-﻿using AP_Master.Server.DTOs;
+﻿using AP_Master.Server.DTOs.Chat;
 using AP_Master.Server.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -20,14 +20,9 @@ namespace AP_Master.Server.Controllers
         public async Task<ActionResult<ChatResponse>> SendMessage([FromBody] ChatRequest request, CancellationToken cancellationToken)
         {
 
-            throw new NotImplementedException();
+            var response = await _chatService.ProcessMessageAsync(request, cancellationToken);
 
-            //var response =
-            //    await _chatService.ProcessMessageAsync(
-            //        request,
-            //        cancellationToken);
-
-            //return Ok(response);
+            return Ok(response);
         }
     }
 }

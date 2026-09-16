@@ -1,6 +1,6 @@
 ﻿using AP_Master.Server.Models;
 
-namespace AP_Master.Server.DTOs;
+namespace AP_Master.Server.DTOs.Chat;
 
 public class ChatResponse
 {
