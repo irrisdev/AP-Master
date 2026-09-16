@@ -1,19 +1,6 @@
-﻿namespace AP_Master.Server.Models;
+﻿using AP_Master.Server.Enums;
 
-public enum ConversationStatus
-{
-    Active,
-    Troubleshooting,
-    Resolved,
-    Escalated
-}
-public enum RequestType
-{
-    CustomerEnquiry,
-    TechnicalSupport,
-    ServiceIssue,
-    Complaint
-}
+namespace AP_Master.Server.Models;
 
 public class Conversation
 {

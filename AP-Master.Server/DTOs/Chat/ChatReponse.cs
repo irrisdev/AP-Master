@@ -1,4 +1,4 @@
-﻿using AP_Master.Server.Models;
+﻿using AP_Master.Server.Enums;
 
 namespace AP_Master.Server.DTOs.Chat;
 

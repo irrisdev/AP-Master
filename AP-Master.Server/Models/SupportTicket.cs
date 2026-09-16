@@ -1,12 +1,6 @@
-﻿namespace AP_Master.Server.Models;
+﻿using AP_Master.Server.Enums;
 
-public enum TicketStatus
-{
-    AwaitingTechnician,
-    InProgress,
-    Resolved,
-    Closed
-}
+namespace AP_Master.Server.Models;
 
 public class SupportTicket
 {

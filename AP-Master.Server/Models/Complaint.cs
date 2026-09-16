@@ -1,20 +1,6 @@
-﻿namespace AP_Master.Server.Models;
+﻿using AP_Master.Server.Enums;
 
-
-public enum ComplaintStatus
-{
-    Open,
-    InProgress,
-    Resolved,
-    Closed
-}
-
-public enum ComplaintSeverity
-{
-    Low,
-    Medium,
-    High
-}
+namespace AP_Master.Server.Models;
 
 public class Complaint
 {
