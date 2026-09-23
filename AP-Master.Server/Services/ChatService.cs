@@ -70,7 +70,7 @@ public class ChatService : IChatService
         }
         else
         {
-            newConversationType = _classificationService.Classify(content);
+            newConversationType = (await _classificationService.ClassifyAsync(content, cancellationToken)).RequestType;
             conversation = await _conversationService.StartAsync(request.CustomerId, newConversationType.Value, cancellationToken);
         }
 
@@ -98,7 +98,8 @@ public class ChatService : IChatService
         }
 
         // 5. Classify and route.
-        var requestType = newConversationType ?? _classificationService.Classify(content);
+        var requestType = newConversationType
+                          ?? (await _classificationService.ClassifyAsync(content, cancellationToken)).RequestType;
         _logger.LogInformation("Routing message in conversation {ConversationId} as {RequestType}",
             conversation.Id, requestType);
 
