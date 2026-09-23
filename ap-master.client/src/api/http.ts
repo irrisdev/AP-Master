@@ -4,12 +4,15 @@ import type {
     ChatRequest,
     ChatResponse,
     ComplaintDto,
+    ComplaintFilter,
     ConversationDetail,
     ConversationSummary,
     CreateCustomerRequest,
     CustomerDto,
     MessageDto,
     TicketDto,
+    TicketFilter,
+    TicketStatus,
 } from './types.ts';
 
 /**
@@ -52,20 +55,9 @@ function asUtc(timestamp: string): string {
     return /(?:Z|[+-]\d{2}:?\d{2})$/.test(timestamp) ? timestamp : `${timestamp}Z`;
 }
 
-/**
- * Endpoints the server has not implemented yet. Failing here with a clear message beats
- * letting the UI show the router's bare 404, which reads as a client bug.
- */
-function notBuiltYet<T>(what: string): Promise<T> {
-    // Rejected, not thrown: these are async methods, and a synchronous throw would
-    // escape callers that only attach a .catch().
-    return Promise.reject(
-        new ApiError(
-            `${what} is not available yet.`,
-            501,
-            'The server does not expose this endpoint yet. Switch to mock mode to see the UI with sample data.',
-        ),
-    );
+/** "?a=1&b=2", or "" when nothing is set. */
+function suffix(query: URLSearchParams): string {
+    return query.size > 0 ? `?${query.toString()}` : '';
 }
 
 /**
@@ -187,28 +179,54 @@ export class HttpApiClient implements ApiClient {
         };
     }
 
-    /* ------------------------------------------------------------------------
-     * Not implemented on the server yet. The shapes below are agreed proposals;
-     * swap each body for a real `this.request(...)` as the endpoints land.
-     * ---------------------------------------------------------------------- */
-
-    listTickets(): Promise<TicketDto[]> {
-        return notBuiltYet('The ticket queue');
+    listTickets(filter?: TicketFilter, signal?: AbortSignal): Promise<TicketDto[]> {
+        const query = new URLSearchParams();
+        if (filter?.status !== undefined) query.set('status', String(filter.status));
+        if (filter?.customerId !== undefined) query.set('customerId', String(filter.customerId));
+        return this.request<TicketDto[]>(`/tickets${suffix(query)}`, { method: 'GET' }, signal);
     }
 
-    getTicket(): Promise<TicketDto> {
-        return notBuiltYet('Ticket detail');
+    getTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
+        return this.request<TicketDto>(`/tickets/${id}`, { method: 'GET' }, signal);
     }
 
-    updateTicketStatus(): Promise<TicketDto> {
-        return notBuiltYet('Updating a ticket');
+    updateTicketStatus(
+        id: number,
+        status: TicketStatus,
+        signal?: AbortSignal,
+    ): Promise<TicketDto> {
+        return this.request<TicketDto>(
+            `/tickets/${id}/status`,
+            { method: 'PUT', body: JSON.stringify({ status }) },
+            signal,
+        );
     }
 
-    listComplaints(): Promise<ComplaintDto[]> {
-        return notBuiltYet('The complaints list');
+    closeTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
+        return this.request<TicketDto>(`/tickets/${id}/close`, { method: 'POST' }, signal);
     }
 
-    createComplaint(): Promise<ComplaintDto> {
-        return notBuiltYet('Logging a complaint directly');
+    listComplaints(filter?: ComplaintFilter, signal?: AbortSignal): Promise<ComplaintDto[]> {
+        const query = new URLSearchParams();
+        if (filter?.status !== undefined) query.set('status', String(filter.status));
+        if (filter?.severity !== undefined) query.set('severity', String(filter.severity));
+        if (filter?.escalated !== undefined) query.set('escalated', String(filter.escalated));
+        return this.request<ComplaintDto[]>(
+            `/complaints${suffix(query)}`,
+            { method: 'GET' },
+            signal,
+        );
+    }
+
+    getComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
+        return this.request<ComplaintDto>(`/complaints/${id}`, { method: 'GET' }, signal);
+    }
+
+    escalateComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
+        return this.request<ComplaintDto>(
+            `/complaints/${id}/escalate`,
+            { method: 'POST' },
+            signal,
+        );
     }
 }

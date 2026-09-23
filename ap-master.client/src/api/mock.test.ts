@@ -60,7 +60,7 @@ describe('MockApiClient mirrors the server contract', () => {
         const [latest] = await api.listComplaints();
         expect(latest.category).toBe('Billing');
         expect(latest.severity).toBe(ComplaintSeverity.Medium);
-        expect(latest.reference).toMatch(/^C-\d{5}$/);
+        expect(latest.reference).toMatch(/^CMP-[0-9A-F]{8}$/);
     });
 
     it('stores senders as "Customer" and "AI"', async () => {

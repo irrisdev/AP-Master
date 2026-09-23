@@ -51,7 +51,9 @@ describe('ChatView', () => {
 
         await send(user, 'I want to make a complaint about my last engineer visit');
 
-        expect(await screen.findByText(/complaint reference is C-\d+/)).toBeInTheDocument();
+        expect(
+            await screen.findByText(/complaint reference is CMP-[0-9A-F]+/),
+        ).toBeInTheDocument();
         expect(screen.getByText('Complaint')).toBeInTheDocument();
         // Low severity: recorded, not escalated.
         expect(screen.queryByText('Complaint logged and escalated')).not.toBeInTheDocument();

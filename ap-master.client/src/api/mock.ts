@@ -5,14 +5,13 @@ import {
     ComplaintStatus,
     ConversationStatus,
     RequestType,
-    TicketPriority,
     TicketStatus,
 } from './types.ts';
 import type {
     ChatRequest,
     ChatResponse,
     ComplaintDto,
-    ComplaintRequest,
+    ComplaintFilter,
     ConversationDetail,
     ConversationSummary,
     CreateCustomerRequest,
@@ -36,7 +35,8 @@ import type {
  *  - technical support raises a ticket and marks the conversation Escalated
  *  - service issues move the conversation to Troubleshooting, no ticket
  *  - complaints get keyword-derived severity and category; only High escalates
- *  - senders are "Customer" and "AI"; complaint references look like C-12345
+ *  - a reply to troubleshooting steps is read as an answer, not reclassified
+ *  - senders are "Customer" and "AI"; references look like TKT-000042 / CMP-6D4A1140
  *
  * Where the server is still a stub (the AI reply is the literal
  * "not implemented"), the mock returns plausible copy instead — the point is to
@@ -140,6 +140,11 @@ function startsWithWord(text: string, word: string): boolean {
     return text.startsWith(word) && (text.length === word.length || !/[a-z]/.test(text[word.length]));
 }
 
+/** Mirrors TicketReference.For — the reference is derived from the id, not stored. */
+function ticketReference(ticketId: number): string {
+    return `TKT-${String(ticketId).padStart(6, '0')}`;
+}
+
 /** Mirrors DbSeeder's email convention, so the mock's customers look like the seeded ones. */
 function emailFor(name: string): string {
     return `${name.toLowerCase().replace(/[^a-z]/g, '')}@example.com`;
@@ -200,10 +205,10 @@ export class MockApiClient implements ApiClient {
         return this.nextId;
     }
 
-    /** The server draws these at random; sequential is enough for a stand-in. */
+    /** Mirrors ComplaintService.GenerateReference — CMP- plus 8 uppercase hex characters. */
     private reference(): string {
         this.nextReference += 1;
-        return `C-${this.nextReference}`;
+        return `CMP-${this.nextReference.toString(16).toUpperCase().padStart(8, '0')}`;
     }
 
     private seed(): void {
@@ -239,41 +244,33 @@ export class MockApiClient implements ApiClient {
 
         this.tickets.push({
             id: ticketId,
+            reference: ticketReference(ticketId),
             customerId: 1,
-            customerName: customerName(1),
             conversationId: convoId,
             description: 'My router will not connect since the firmware update last night.',
             status: TicketStatus.AwaitingTechnician,
-            priority: TicketPriority.Medium,
-            createdAt: isoMinutesAgo(89),
-            updatedAt: isoMinutesAgo(89),
         });
 
+        const secondTicketId = this.id();
         this.tickets.push({
-            id: this.id(),
+            id: secondTicketId,
+            reference: ticketReference(secondTicketId),
             customerId: 2,
-            customerName: customerName(2),
             conversationId: null,
             description: 'Line fault reported by engineer; awaiting replacement part.',
             status: TicketStatus.InProgress,
-            priority: TicketPriority.Medium,
-            createdAt: isoMinutesAgo(300),
-            updatedAt: isoMinutesAgo(30),
         });
 
         this.complaints.push({
             id: this.id(),
-            customerId: 3,
-            customerName: customerName(3),
-            conversationId: null,
             reference: this.reference(),
+            customerId: 3,
+            conversationId: null,
             description: 'Third technician visit missed without notice. I am considering legal advice.',
             category: 'Technical Support',
             severity: ComplaintSeverity.High,
             status: ComplaintStatus.Open,
             escalated: true,
-            createdAt: isoMinutesAgo(1440),
-            updatedAt: isoMinutesAgo(200),
         });
     }
 
@@ -425,17 +422,14 @@ export class MockApiClient implements ApiClient {
     }
 
     private createTicket(conversation: ConversationDetail, description: string): TicketDto {
+        const id = this.id();
         const ticket: TicketDto = {
-            id: this.id(),
+            id,
+            reference: ticketReference(id),
             customerId: conversation.customerId,
-            customerName: customerName(conversation.customerId),
             conversationId: conversation.id,
             description,
             status: TicketStatus.AwaitingTechnician,
-            // The server has no priority column yet; Medium until that is decided.
-            priority: TicketPriority.Medium,
-            createdAt: nowIso(),
-            updatedAt: nowIso(),
         };
         this.tickets.push(ticket);
         return ticket;
@@ -450,17 +444,14 @@ export class MockApiClient implements ApiClient {
         const severity = complaintSeverity(description);
         const complaint: ComplaintDto = {
             id: this.id(),
-            customerId,
-            customerName: customerName(customerId),
-            conversationId,
             reference: this.reference(),
+            customerId,
+            conversationId,
             description,
             category: category ?? complaintCategory(description),
             severity,
             status: ComplaintStatus.Open,
             escalated: severity === ComplaintSeverity.High,
-            createdAt: nowIso(),
-            updatedAt: nowIso(),
         };
         this.complaints.push(complaint);
         return complaint;
@@ -521,19 +512,19 @@ export class MockApiClient implements ApiClient {
         return structuredClone(found);
     }
 
+    /** Newest first, matching the server's OrderByDescending(t => t.Id). */
     async listTickets(filter?: TicketFilter, signal?: AbortSignal): Promise<TicketDto[]> {
         await delay(this.latencyMs, signal);
         return this.tickets
             .filter((t) => filter?.status === undefined || t.status === filter.status)
-            .filter((t) => filter?.priority === undefined || t.priority === filter.priority)
-            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+            .filter((t) => filter?.customerId === undefined || t.customerId === filter.customerId)
+            .sort((a, b) => b.id - a.id)
+            .map((t) => ({ ...t }));
     }
 
     async getTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
         await delay(this.latencyMs, signal);
-        const found = this.tickets.find((t) => t.id === id);
-        if (!found) throw new ApiError('Ticket not found.', 404);
-        return { ...found };
+        return { ...this.findTicket(id) };
     }
 
     async updateTicketStatus(
@@ -542,27 +533,75 @@ export class MockApiClient implements ApiClient {
         signal?: AbortSignal,
     ): Promise<TicketDto> {
         await delay(this.latencyMs, signal);
-        const found = this.tickets.find((t) => t.id === id);
-        if (!found) throw new ApiError('Ticket not found.', 404);
+        const found = this.findTicket(id);
+
+        if (found.status === status) return { ...found }; // nothing to change
+
+        if (found.status === TicketStatus.Closed) {
+            throw new ApiError(
+                'Conflict',
+                409,
+                `Ticket ${found.reference} is closed and cannot be reopened.`,
+            );
+        }
+
         found.status = status;
-        found.updatedAt = nowIso();
         return { ...found };
     }
 
-    async listComplaints(signal?: AbortSignal): Promise<ComplaintDto[]> {
+    async closeTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
         await delay(this.latencyMs, signal);
-        return [...this.complaints].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        const found = this.findTicket(id);
+
+        if (found.status === TicketStatus.Closed) {
+            throw new ApiError('Conflict', 409, `Ticket ${found.reference} is already closed.`);
+        }
+
+        found.status = TicketStatus.Closed;
+        return { ...found };
     }
 
-    async createComplaint(request: ComplaintRequest, signal?: AbortSignal): Promise<ComplaintDto> {
+    async listComplaints(filter?: ComplaintFilter, signal?: AbortSignal): Promise<ComplaintDto[]> {
         await delay(this.latencyMs, signal);
-        const complaint = this.recordComplaint(
-            request.customerId,
-            request.conversationId ?? null,
-            request.description,
-            request.category ?? undefined,
-        );
-        return { ...complaint };
+        return this.complaints
+            .filter((c) => filter?.status === undefined || c.status === filter.status)
+            .filter((c) => filter?.severity === undefined || c.severity === filter.severity)
+            .filter((c) => filter?.escalated === undefined || c.escalated === filter.escalated)
+            .sort((a, b) => b.id - a.id)
+            .map((c) => ({ ...c }));
+    }
+
+    async getComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
+        await delay(this.latencyMs, signal);
+        return { ...this.findComplaint(id) };
+    }
+
+    async escalateComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
+        await delay(this.latencyMs, signal);
+        const found = this.findComplaint(id);
+
+        if (found.escalated) {
+            throw new ApiError(
+                'Conflict',
+                409,
+                `Complaint ${found.reference} has already been escalated.`,
+            );
+        }
+
+        found.escalated = true;
+        return { ...found };
+    }
+
+    private findTicket(id: number): TicketDto {
+        const found = this.tickets.find((t) => t.id === id);
+        if (!found) throw new ApiError('Resource not found', 404, `Ticket ${id} was not found.`);
+        return found;
+    }
+
+    private findComplaint(id: number): ComplaintDto {
+        const found = this.complaints.find((c) => c.id === id);
+        if (!found) throw new ApiError('Resource not found', 404, `Complaint ${id} was not found.`);
+        return found;
     }
 }
 

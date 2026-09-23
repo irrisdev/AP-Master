@@ -39,14 +39,6 @@ export const TicketStatus = {
 } as const;
 export type TicketStatus = (typeof TicketStatus)[keyof typeof TicketStatus];
 
-export const TicketPriority = {
-    Low: 0,
-    Medium: 1,
-    High: 2,
-    Critical: 3,
-} as const;
-export type TicketPriority = (typeof TicketPriority)[keyof typeof TicketPriority];
-
 export const ComplaintStatus = {
     Open: 0,
     InProgress: 1,
@@ -85,13 +77,6 @@ export const ticketStatusLabel: Record<TicketStatus, string> = {
     [TicketStatus.Closed]: 'Closed',
 };
 
-export const ticketPriorityLabel: Record<TicketPriority, string> = {
-    [TicketPriority.Low]: 'Low',
-    [TicketPriority.Medium]: 'Medium',
-    [TicketPriority.High]: 'High',
-    [TicketPriority.Critical]: 'Critical',
-};
-
 export const complaintStatusLabel: Record<ComplaintStatus, string> = {
     [ComplaintStatus.Open]: 'Open',
     [ComplaintStatus.InProgress]: 'In progress',
@@ -111,9 +96,6 @@ export const complaintSeverityLabel: Record<ComplaintSeverity, string> = {
 export const limits = {
     chatMessageMin: 1,
     chatMessageMax: 2000,
-    complaintDescriptionMin: 5,
-    complaintDescriptionMax: 5000,
-    complaintCategoryMax: 100,
 } as const;
 
 /* ------------------------------------------------- DTOs mirrored from C# */
@@ -135,13 +117,8 @@ export interface ChatResponse {
     ticketId?: number | null;
 }
 
-/** Mirrors DTOs/ComplaintRequest.cs */
-export interface ComplaintRequest {
-    customerId: number;
-    conversationId?: number | null;
-    description: string;
-    category?: string | null;
-}
+/* There is no POST /api/complaints: a complaint is only ever raised by the chat
+   flow, which classifies the message and derives severity and category itself. */
 
 /** Mirrors DTOs/CustomerDtos.cs — CustomerResponse */
 export interface CustomerDto {
@@ -190,39 +167,40 @@ export interface ConversationDetail extends ConversationSummary {
     messages: MessageDto[];
 }
 
-/* ------------------------------------------------------- PROPOSED shapes */
-/* No server DTO exists for these yet. They are the frontend's proposal for  */
-/* the read models the dashboard needs. Agree them with whoever builds the   */
-/* endpoints before treating them as settled.                               */
-
+/** Mirrors DTOs/TicketDtos.cs — TicketResponse */
 export interface TicketDto {
     id: number;
+    /** Customer-facing reference derived from the id, e.g. TKT-000042. */
+    reference: string;
     customerId: number;
-    customerName: string;
     conversationId?: number | null;
     description: string;
     status: TicketStatus;
-    priority: TicketPriority;
-    createdAt: string;
-    updatedAt: string;
 }
 
+/** Mirrors DTOs/ComplaintDtos.cs — ComplaintResponse */
 export interface ComplaintDto {
     id: number;
-    customerId: number;
-    customerName: string;
-    conversationId?: number | null;
+    /** e.g. CMP-6D4A1140 */
     reference: string;
+    customerId: number;
+    conversationId?: number | null;
     description: string;
     category: string;
     severity: ComplaintSeverity;
     status: ComplaintStatus;
     escalated: boolean;
-    createdAt: string;
-    updatedAt: string;
 }
 
+/** Query parameters accepted by GET /api/tickets. */
 export interface TicketFilter {
     status?: TicketStatus;
-    priority?: TicketPriority;
+    customerId?: number;
+}
+
+/** Query parameters accepted by GET /api/complaints. */
+export interface ComplaintFilter {
+    status?: ComplaintStatus;
+    severity?: ComplaintSeverity;
+    escalated?: boolean;
 }
