@@ -1,0 +1,35 @@
+CUSTOMERS
+─────────────────────────────────
+POST   /api/customers
+GET    /api/customers/{id}
+GET    /api/customers/{id}/conversations
+
+
+CHAT
+─────────────────────────────────
+POST   /api/chat
+
+
+CONVERSATIONS
+─────────────────────────────────
+GET    /api/conversations/{id}
+GET    /api/conversations/{id}/messages
+
+
+TICKETS
+─────────────────────────────────
+GET    /api/tickets
+GET    /api/tickets/{id}
+POST   /api/tickets/{id}/close
+
+
+COMPLAINTS
+─────────────────────────────────
+GET    /api/complaints
+GET    /api/complaints/{id}
+POST   /api/complaints
+
+
+SYSTEM
+─────────────────────────────────
+GET    /api/health

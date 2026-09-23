@@ -3,6 +3,7 @@
 
 using AP_Master.Server.Data;
 using AP_Master.Server.Development;
+using AP_Master.Server.Middleware;
 using AP_Master.Server.Properties;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
@@ -38,6 +39,7 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseExceptionHandler();
 
 app.UseDefaultFiles();

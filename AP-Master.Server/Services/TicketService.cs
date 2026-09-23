@@ -32,7 +32,7 @@ public class TicketService : ITicketService
 
         await _dbContext.SupportTickets.AddAsync(ticket, cancellationToken);
 
-        await _dbContext.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
         return ticket;
 
