@@ -18,9 +18,9 @@ public static class DependencyInjection
         services.AddScoped<IComplaintService, ComplaintService>();
         services.AddScoped<IConversationService, ConversationService>();
         services.AddScoped<IMessageService, MessageService>();
-        
+        services.AddSingleton<RuleBasedClassifier>();
+
         services.AddSingleton<ITroubleshootingOutcomeDetector, TroubleshootingOutcomeDetector>();
-        
         return services;
 
     }
