@@ -143,11 +143,11 @@ namespace AP_Master.Server.Migrations
                     b.Property<int>("ConversationId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("Sender")
-                        .IsRequired()
+                    b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("Timestamp")
+                    b.Property<string>("Sender")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
