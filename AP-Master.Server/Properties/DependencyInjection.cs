@@ -14,7 +14,6 @@ public static class DependencyInjection
         // exception first and reported NotFoundException as a 500.
         services.AddProblemDetails();
 
-        services.AddScoped<IAIService, AIService>();
         services.AddScoped<IChatService, ChatService>();
         services.AddScoped<IClassificationService, ClassificationService>();
         services.AddScoped<ITicketService, TicketService>();
@@ -22,11 +21,9 @@ public static class DependencyInjection
         services.AddScoped<IComplaintService, ComplaintService>();
         services.AddScoped<IConversationService, ConversationService>();
         services.AddScoped<IMessageService, MessageService>();
-        
+        services.AddSingleton<RuleBasedClassifier>();
+
         services.AddSingleton<ITroubleshootingOutcomeDetector, TroubleshootingOutcomeDetector>();
-
-        services.AddHttpClient<IAIService, AIService>();
-
         return services;
 
     }

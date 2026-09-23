@@ -1,10 +1,12 @@
 
 
 
+using System.Net.Http.Headers;
 using AP_Master.Server.Data;
 using AP_Master.Server.Development;
 using AP_Master.Server.Middleware;
 using AP_Master.Server.Properties;
+using AP_Master.Server.Services;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 
@@ -24,6 +26,25 @@ builder.Services.AddDbContext<TelegroupDbContext>(options =>
 
 // Dependency injection for application services
 builder.Services.AddApplicationServices();
+
+// Set up AI service integration with configured key
+builder.Services.Configure<AIOptions>(builder.Configuration.GetSection(AIOptions.SectionName));
+var ai = builder.Configuration.GetSection(AIOptions.SectionName).Get<AIOptions>() ?? new AIOptions();
+
+if (string.IsNullOrWhiteSpace(ai.ApiKey))
+{
+    builder.Services.AddSingleton<IAIService, DummyAIService>();
+}
+else
+{
+    builder.Services.AddHttpClient<IAIService, AIService>(client =>
+    {
+        client.BaseAddress = new Uri(ai.BaseUrl);
+        client.Timeout = TimeSpan.FromSeconds(ai.TimeoutSeconds);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ai.ApiKey);
+        client.DefaultRequestHeaders.Add("X-Title", "Telegroup Customer Service");
+    });
+}
 
 // Cors to allow React frontend to communicate with API
 builder.Services.AddCors(options =>
