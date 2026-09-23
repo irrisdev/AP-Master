@@ -11,7 +11,6 @@ public static class DependencyInjection
         services.AddProblemDetails();
         services.AddExceptionHandler<GlobalExceptionHandler>();
 
-        services.AddScoped<IAIService, AIService>();
         services.AddScoped<IChatService, ChatService>();
         services.AddScoped<IClassificationService, ClassificationService>();
         services.AddScoped<ITicketService, TicketService>();
@@ -21,9 +20,7 @@ public static class DependencyInjection
         services.AddScoped<IMessageService, MessageService>();
         
         services.AddSingleton<ITroubleshootingOutcomeDetector, TroubleshootingOutcomeDetector>();
-
-        services.AddHttpClient<IAIService, AIService>();
-
+        
         return services;
 
     }
