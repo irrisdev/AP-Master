@@ -8,8 +8,11 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
+        // ProblemDetails still formats the framework's own responses (model validation 400s).
+        // Application exceptions are handled by ExceptionHandlingMiddleware instead: registering
+        // GlobalExceptionHandler here put it *inside* that middleware, where it caught every
+        // exception first and reported NotFoundException as a 500.
         services.AddProblemDetails();
-        services.AddExceptionHandler<GlobalExceptionHandler>();
 
         services.AddScoped<IAIService, AIService>();
         services.AddScoped<IChatService, ChatService>();

@@ -40,7 +40,6 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
-app.UseExceptionHandler();
 
 app.UseDefaultFiles();
 app.MapStaticAssets();

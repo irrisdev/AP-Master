@@ -88,6 +88,91 @@ describe('HttpApiClient error handling', () => {
         expect(error.isRetryable).toBe(true);
     });
 
+    it('reads a conversation as UTC even though the server sends no offset', async () => {
+        // EF Core reads DateTimes back out of SQLite with no Kind, so the JSON has no "Z".
+        const conversation = {
+            id: 7,
+            customerId: 1,
+            requestType: 2,
+            status: 1,
+            createdAt: '2026-09-23T14:01:50.4376397',
+            updatedAt: '2026-09-23T14:01:50.472274',
+        };
+        const messages = [
+            {
+                id: 50,
+                conversationId: 7,
+                sender: 'Customer',
+                content: 'My broadband is slow',
+                createdAt: '2026-09-23T14:01:50.4376397',
+            },
+        ];
+
+        vi.stubGlobal(
+            'fetch',
+            vi.fn((url: string) =>
+                Promise.resolve(
+                    Response.json(
+                        url.endsWith('/messages')
+                            ? messages
+                            : url.includes('/customers/')
+                              ? { id: 1, name: 'John Doe', email: 'johndoe@example.com' }
+                              : conversation,
+                    ),
+                ),
+            ),
+        );
+
+        const detail = await new HttpApiClient().getConversation(7);
+
+        expect(detail.createdAt).toBe('2026-09-23T14:01:50.4376397Z');
+        expect(detail.messages[0].createdAt).toBe('2026-09-23T14:01:50.4376397Z');
+        expect(new Date(detail.createdAt).getUTCHours()).toBe(14);
+        // Assembled from the separate endpoints rather than one read model.
+        expect(detail.customerName).toBe('John Doe');
+    });
+
+    it('does not double-stamp a timestamp that already carries a zone', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn((url: string) =>
+                Promise.resolve(
+                    Response.json(
+                        url.endsWith('/messages')
+                            ? []
+                            : url.includes('/customers/')
+                              ? { id: 1, name: 'John Doe', email: 'j@example.com' }
+                              : {
+                                    id: 7,
+                                    customerId: 1,
+                                    requestType: 0,
+                                    status: 0,
+                                    createdAt: '2026-09-23T14:01:50Z',
+                                    updatedAt: '2026-09-23T14:01:50+01:00',
+                                },
+                    ),
+                ),
+            ),
+        );
+
+        const detail = await new HttpApiClient().getConversation(7);
+
+        expect(detail.createdAt).toBe('2026-09-23T14:01:50Z');
+        expect(detail.updatedAt).toBe('2026-09-23T14:01:50+01:00');
+    });
+
+    it('says plainly that an unbuilt endpoint is not available, without calling the server', async () => {
+        const fetchSpy = vi.fn();
+        vi.stubGlobal('fetch', fetchSpy);
+
+        await expect(new HttpApiClient().listTickets()).rejects.toMatchObject({
+            name: 'ApiError',
+            status: 501,
+            message: 'The ticket queue is not available yet.',
+        });
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
     it('lets an abort through untouched', async () => {
         vi.stubGlobal(
             'fetch',

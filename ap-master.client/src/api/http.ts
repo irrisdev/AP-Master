@@ -4,12 +4,12 @@ import type {
     ChatRequest,
     ChatResponse,
     ComplaintDto,
-    ComplaintRequest,
     ConversationDetail,
     ConversationSummary,
+    CreateCustomerRequest,
+    CustomerDto,
+    MessageDto,
     TicketDto,
-    TicketFilter,
-    TicketStatus,
 } from './types.ts';
 
 /**
@@ -40,6 +40,32 @@ function describeErrors(errors: Record<string, string[]> | undefined): string | 
     if (!errors) return undefined;
     const lines = Object.values(errors).flat();
     return lines.length > 0 ? lines.join(' ') : undefined;
+}
+
+/**
+ * The server writes UTC, but EF Core reads `DateTime`s back out of SQLite with no `Kind`,
+ * so they serialise as "2026-09-23T14:01:50.43" with no offset. `new Date()` would read
+ * that as *local* time and every timestamp would drift by the browser's offset. Mark it as
+ * UTC unless the server already said otherwise.
+ */
+function asUtc(timestamp: string): string {
+    return /(?:Z|[+-]\d{2}:?\d{2})$/.test(timestamp) ? timestamp : `${timestamp}Z`;
+}
+
+/**
+ * Endpoints the server has not implemented yet. Failing here with a clear message beats
+ * letting the UI show the router's bare 404, which reads as a client bug.
+ */
+function notBuiltYet<T>(what: string): Promise<T> {
+    // Rejected, not thrown: these are async methods, and a synchronous throw would
+    // escape callers that only attach a .catch().
+    return Promise.reject(
+        new ApiError(
+            `${what} is not available yet.`,
+            501,
+            'The server does not expose this endpoint yet. Switch to mock mode to see the UI with sample data.',
+        ),
+    );
 }
 
 /**
@@ -103,47 +129,86 @@ export class HttpApiClient implements ApiClient {
         );
     }
 
-    listConversations(signal?: AbortSignal): Promise<ConversationSummary[]> {
-        return this.request<ConversationSummary[]>('/conversations', { method: 'GET' }, signal);
+    getCustomer(id: number, signal?: AbortSignal): Promise<CustomerDto> {
+        return this.request<CustomerDto>(`/customers/${id}`, { method: 'GET' }, signal);
     }
 
-    getConversation(id: number, signal?: AbortSignal): Promise<ConversationDetail> {
-        return this.request<ConversationDetail>(`/conversations/${id}`, { method: 'GET' }, signal);
-    }
-
-    listTickets(filter?: TicketFilter, signal?: AbortSignal): Promise<TicketDto[]> {
-        const query = new URLSearchParams();
-        if (filter?.status !== undefined) query.set('status', String(filter.status));
-        if (filter?.priority !== undefined) query.set('priority', String(filter.priority));
-        const suffix = query.size > 0 ? `?${query.toString()}` : '';
-        return this.request<TicketDto[]>(`/tickets${suffix}`, { method: 'GET' }, signal);
-    }
-
-    getTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
-        return this.request<TicketDto>(`/tickets/${id}`, { method: 'GET' }, signal);
-    }
-
-    updateTicketStatus(
-        id: number,
-        status: TicketStatus,
-        signal?: AbortSignal,
-    ): Promise<TicketDto> {
-        return this.request<TicketDto>(
-            `/tickets/${id}/status`,
-            { method: 'PATCH', body: JSON.stringify({ status }) },
-            signal,
-        );
-    }
-
-    listComplaints(signal?: AbortSignal): Promise<ComplaintDto[]> {
-        return this.request<ComplaintDto[]>('/complaints', { method: 'GET' }, signal);
-    }
-
-    createComplaint(request: ComplaintRequest, signal?: AbortSignal): Promise<ComplaintDto> {
-        return this.request<ComplaintDto>(
-            '/complaints',
+    createCustomer(request: CreateCustomerRequest, signal?: AbortSignal): Promise<CustomerDto> {
+        return this.request<CustomerDto>(
+            '/customers',
             { method: 'POST', body: JSON.stringify(request) },
             signal,
         );
+    }
+
+    async listConversations(
+        customerId: number,
+        signal?: AbortSignal,
+    ): Promise<ConversationSummary[]> {
+        const [customer, conversations] = await Promise.all([
+            this.getCustomer(customerId, signal),
+            this.request<ConversationSummary[]>(
+                `/customers/${customerId}/conversations`,
+                { method: 'GET' },
+                signal,
+            ),
+        ]);
+
+        return conversations.map((conversation) => ({
+            ...conversation,
+            createdAt: asUtc(conversation.createdAt),
+            updatedAt: asUtc(conversation.updatedAt),
+            customerName: customer.name,
+        }));
+    }
+
+    /**
+     * Assembled from two endpoints — the conversation and its messages — because the
+     * server has no single read model for the pair. The customer's name is a third
+     * call, and is allowed to fail: a missing name should not hide the transcript.
+     */
+    async getConversation(id: number, signal?: AbortSignal): Promise<ConversationDetail> {
+        const [conversation, messages] = await Promise.all([
+            this.request<ConversationSummary>(`/conversations/${id}`, { method: 'GET' }, signal),
+            this.request<MessageDto[]>(`/conversations/${id}/messages`, { method: 'GET' }, signal),
+        ]);
+
+        const customer = await this.getCustomer(conversation.customerId, signal).catch(() => null);
+
+        return {
+            ...conversation,
+            createdAt: asUtc(conversation.createdAt),
+            updatedAt: asUtc(conversation.updatedAt),
+            customerName: customer?.name,
+            messages: messages.map((message) => ({
+                ...message,
+                createdAt: asUtc(message.createdAt),
+            })),
+        };
+    }
+
+    /* ------------------------------------------------------------------------
+     * Not implemented on the server yet. The shapes below are agreed proposals;
+     * swap each body for a real `this.request(...)` as the endpoints land.
+     * ---------------------------------------------------------------------- */
+
+    listTickets(): Promise<TicketDto[]> {
+        return notBuiltYet('The ticket queue');
+    }
+
+    getTicket(): Promise<TicketDto> {
+        return notBuiltYet('Ticket detail');
+    }
+
+    updateTicketStatus(): Promise<TicketDto> {
+        return notBuiltYet('Updating a ticket');
+    }
+
+    listComplaints(): Promise<ComplaintDto[]> {
+        return notBuiltYet('The complaints list');
+    }
+
+    createComplaint(): Promise<ComplaintDto> {
+        return notBuiltYet('Logging a complaint directly');
     }
 }

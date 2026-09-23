@@ -45,7 +45,7 @@ describe('App shell', () => {
         await user.click(screen.getByRole('tab', { name: 'Conversations' }));
 
         // Newest first, so the conversation just held is the first card.
-        const cards = await screen.findAllByRole('button', { name: 'John Doe' });
+        const cards = await screen.findAllByRole('button', { name: /^Conversation #\d+$/ });
         await user.click(cards[0]);
 
         const thread = await screen.findByRole('region', { name: /^Conversation \d+$/ });

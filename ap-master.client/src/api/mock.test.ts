@@ -75,8 +75,55 @@ describe('MockApiClient mirrors the server contract', () => {
         const api = client();
         const response = await api.sendMessage({ customerId: 5, message: 'hello' });
 
-        const [conversation] = await api.listConversations();
+        const [conversation] = await api.listConversations(5);
         expect(conversation.id).toBe(response.conversationId);
         expect(conversation.customerName).toBe('Emily Davis');
+        expect(await api.getCustomer(5)).toMatchObject({ name: 'Emily Davis' });
+    });
+
+    it('lists only the conversations belonging to that customer', async () => {
+        const api = client();
+        await api.sendMessage({ customerId: 2, message: 'hello' });
+        await api.sendMessage({ customerId: 3, message: 'hello' });
+
+        const forTwo = await api.listConversations(2);
+        expect(forTwo).toHaveLength(1);
+        expect(forTwo[0].customerId).toBe(2);
+    });
+
+    it('closes the conversation when troubleshooting worked', async () => {
+        const api = client();
+        const issue = await api.sendMessage({ customerId: 1, message: 'My broadband is slow' });
+        expect(issue.message).toMatch(/Did that fix the problem/);
+
+        const reply = await api.sendMessage({
+            customerId: 1,
+            conversationId: issue.conversationId,
+            message: 'that worked, thanks',
+        });
+
+        expect(reply.ticketId).toBeNull();
+        expect(reply.escalated).toBe(false);
+        const conversation = await api.getConversation(issue.conversationId);
+        expect(conversation.status).toBe(ConversationStatus.Resolved);
+    });
+
+    it('raises a ticket when troubleshooting did not work', async () => {
+        const api = client();
+        const issue = await api.sendMessage({ customerId: 1, message: 'My broadband is slow' });
+
+        const reply = await api.sendMessage({
+            customerId: 1,
+            conversationId: issue.conversationId,
+            message: 'no, still not working',
+        });
+
+        expect(reply.ticketId).not.toBeNull();
+        expect(reply.escalated).toBe(true);
+        // "still not working" is an answer, not a fresh service-issue enquiry.
+        expect(reply.requestType).toBe(RequestType.ServiceIssue);
+
+        const conversation = await api.getConversation(issue.conversationId);
+        expect(conversation.status).toBe(ConversationStatus.Escalated);
     });
 });

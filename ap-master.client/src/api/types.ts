@@ -143,35 +143,57 @@ export interface ComplaintRequest {
     category?: string | null;
 }
 
-/* ------------------------------------------------------- PROPOSED shapes */
-/* No server DTO exists for these yet. They are the frontend's proposal for  */
-/* the read models the dashboard needs. Agree them with whoever builds the   */
-/* endpoints before treating them as settled.                               */
+/** Mirrors DTOs/CustomerDtos.cs — CustomerResponse */
+export interface CustomerDto {
+    id: number;
+    name: string;
+    email: string;
+}
 
+/** Mirrors DTOs/CustomerDtos.cs — CreateCustomerRequest */
+export interface CreateCustomerRequest {
+    name: string;
+    email: string;
+}
+
+/** Mirrors DTOs/MessageDtos.cs — MessageResponse */
 export interface MessageDto {
     id: number;
     conversationId: number;
     /** Server-side `Message.Sender` is currently a plain string, not an enum. */
     sender: string;
     content: string;
-    timestamp: string;
+    /**
+     * Server-local timestamp. SQLite hands EF Core a `DateTime` with no `Kind`, so the
+     * JSON carries no timezone suffix; `HttpApiClient` marks these as UTC on the way in.
+     */
+    createdAt: string;
 }
 
+/** Mirrors DTOs/ConversationDtos.cs — ConversationResponse */
 export interface ConversationSummary {
     id: number;
     customerId: number;
-    customerName: string;
     requestType: RequestType;
     status: ConversationStatus;
     createdAt: string;
     updatedAt: string;
-    messageCount: number;
-    lastMessage: string;
+    /**
+     * Not part of ConversationResponse. `HttpApiClient` fills it in from the customer
+     * endpoint so the dashboard can name the person rather than showing a bare id.
+     */
+    customerName?: string;
 }
 
+/** A conversation plus its messages: two server calls, assembled client-side. */
 export interface ConversationDetail extends ConversationSummary {
     messages: MessageDto[];
 }
+
+/* ------------------------------------------------------- PROPOSED shapes */
+/* No server DTO exists for these yet. They are the frontend's proposal for  */
+/* the read models the dashboard needs. Agree them with whoever builds the   */
+/* endpoints before treating them as settled.                               */
 
 export interface TicketDto {
     id: number;
