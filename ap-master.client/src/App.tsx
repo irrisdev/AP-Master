@@ -3,6 +3,7 @@ import { apiMode } from './api/index.ts';
 import { ChatView } from './components/chat/ChatView.tsx';
 import { DashboardView } from './components/dashboard/DashboardView.tsx';
 import { Badge } from './components/ui/Badge.tsx';
+import { ThemeToggle } from './components/ui/ThemeToggle.tsx';
 import './components/ui/ui.css';
 import './App.css';
 
@@ -55,6 +56,8 @@ function App() {
                     {apiMode === 'mock' ? (
                         <Badge tone="warning">Demo data — no backend connected</Badge>
                     ) : null}
+
+                    <ThemeToggle />
                 </div>
             </header>
 

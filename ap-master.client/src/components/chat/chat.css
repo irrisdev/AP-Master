@@ -38,8 +38,7 @@
     padding: var(--space-4);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    background: var(--surface);
-    box-shadow: var(--shadow-sm);
+    background: var(--surface-alt);
 }
 
 /* ------------------------------------------------------------------ bubble */
@@ -48,6 +47,7 @@
     max-width: min(78%, 62ch);
     padding: var(--space-3) var(--space-4);
     border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
     border: 1px solid transparent;
 }
 
@@ -58,10 +58,12 @@
     border-bottom-right-radius: var(--radius-sm);
 }
 
+/* Assistant replies carry the brand highlight; customer messages carry the action colour. */
 .bubble--assistant {
     align-self: flex-start;
-    background: var(--surface-alt);
+    background: var(--surface);
     border-color: var(--border);
+    border-left: 3px solid var(--highlight);
     border-bottom-left-radius: var(--radius-sm);
 }
 
@@ -109,7 +111,7 @@
 .notice {
     align-self: stretch;
     padding: var(--space-3) var(--space-4);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-sm);
     border-left: 4px solid;
 }
 
