@@ -8,7 +8,17 @@ namespace AP_Master.Server.Services;
 
 public interface IAIService
 {
+    /// <summary>Single-turn request, for one-off tasks such as classification.</summary>
     Task<string> GenerateResponseAsync(string prompt, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Multi-turn request: the instructions go in a system message and the conversation history
+    /// (oldest first, ending with the customer's latest message) follows as user/assistant turns.
+    /// </summary>
+    Task<string> GenerateChatResponseAsync(
+        string systemPrompt,
+        IReadOnlyList<AIChatMessage> history,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Bound from the "AI" section of configuration. The API key comes from user secrets or an environment variable.</summary>
@@ -22,6 +32,12 @@ public class AIOptions
     public string? ApiKey { get; set; }
     public int TimeoutSeconds { get; set; } = 30;
     public int MaxTokens { get; set; } = 800;
+
+    /// <summary>Most recent messages from the conversation sent with each chat request.</summary>
+    public int MaxHistoryMessages { get; set; } = 20;
+
+    /// <summary>Character budget for history, so long conversations don't exceed the model's context window.</summary>
+    public int MaxHistoryCharacters { get; set; } = 12000;
 }
 
 /// <summary>Any failure talking to the AI provider: timeout, network, HTTP error, bad or empty response.</summary>
@@ -47,15 +63,36 @@ public class AIService : IAIService
         _logger = logger;
     }
 
-    public async Task<string> GenerateResponseAsync(string prompt, CancellationToken cancellationToken = default)
+    public Task<string> GenerateResponseAsync(string prompt, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(prompt))
             throw new ArgumentException("Prompt cannot be empty.", nameof(prompt));
 
-        var request = new ChatCompletionRequest(
-            _options.Model,
-            new[] { new ChatMessage("user", prompt) },
-            _options.MaxTokens);
+        return SendAsync(new[] { new ChatMessage("user", prompt) }, cancellationToken);
+    }
+
+    public Task<string> GenerateChatResponseAsync(
+        string systemPrompt,
+        IReadOnlyList<AIChatMessage> history,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(systemPrompt))
+            throw new ArgumentException("System prompt cannot be empty.", nameof(systemPrompt));
+        ArgumentNullException.ThrowIfNull(history);
+
+        var turns = AIChatHistory.Prepare(history, _options.MaxHistoryMessages, _options.MaxHistoryCharacters);
+        if (turns.Count == 0)
+            throw new ArgumentException("History must contain at least one customer message.", nameof(history));
+
+        var messages = new List<ChatMessage> { new("system", systemPrompt) };
+        messages.AddRange(turns.Select(t => new ChatMessage(t.Role == AIChatRole.User ? "user" : "assistant", t.Content)));
+
+        return SendAsync(messages, cancellationToken);
+    }
+
+    private async Task<string> SendAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken)
+    {
+        var request = new ChatCompletionRequest(_options.Model, messages, _options.MaxTokens);
 
         var stopwatch = Stopwatch.StartNew();
         HttpResponseMessage response;

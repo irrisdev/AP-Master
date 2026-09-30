@@ -28,6 +28,7 @@ builder.Services.AddDbContext<TelegroupDbContext>(options =>
 builder.Services.AddApplicationServices();
 
 // Set up AI service integration with configured key
+// either AI:ApiKey in appsettings, or AI__ApiKey
 builder.Services.Configure<AIOptions>(builder.Configuration.GetSection(AIOptions.SectionName));
 var ai = builder.Configuration.GetSection(AIOptions.SectionName).Get<AIOptions>() ?? new AIOptions();
 

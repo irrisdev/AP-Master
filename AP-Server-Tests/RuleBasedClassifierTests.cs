@@ -106,6 +106,11 @@ public class ClassificationServiceTests
                 ? throw new AIServiceException("AI unavailable")
                 : Task.FromResult(_reply);
         }
+
+        // Not used by ClassificationService; required by the interface.
+        public Task<string> GenerateChatResponseAsync(
+            string systemPrompt, IReadOnlyList<AIChatMessage> history, CancellationToken cancellationToken = default) =>
+            GenerateResponseAsync(systemPrompt, cancellationToken);
     }
 
     private static ClassificationService CreateService(FakeAIService ai) =>

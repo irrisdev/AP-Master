@@ -27,6 +27,9 @@ public interface ITicketService
     Task<TicketResponse> GetByIdAsync(int id, CancellationToken cancellationToken = default);
     Task<TicketResponse> UpdateStatusAsync(int id, TicketStatus status, CancellationToken cancellationToken = default);
     Task<TicketResponse> CloseAsync(int id, CancellationToken cancellationToken = default);
+
+    /// <summary>The newest ticket in this conversation that is still AwaitingTechnician or InProgress, if any.</summary>
+    Task<SupportTicket?> GetOpenForConversationAsync(int conversationId, CancellationToken cancellationToken = default);
 }
 
 public class TicketService : ITicketService
@@ -39,6 +42,14 @@ public class TicketService : ITicketService
         _dbContext = dbContext;
         _logger = logger;
     }
+
+    public Task<SupportTicket?> GetOpenForConversationAsync(int conversationId, CancellationToken cancellationToken = default) =>
+        _dbContext.SupportTickets
+            .AsNoTracking()
+            .Where(t => t.ConversationId == conversationId &&
+                        (t.Status == TicketStatus.AwaitingTechnician || t.Status == TicketStatus.InProgress))
+            .OrderByDescending(t => t.Id)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<SupportTicket> CreateTicketAsync(int customerId, int? conversationId, string description, CancellationToken cancellationToken = default)
     {
