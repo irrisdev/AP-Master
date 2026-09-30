@@ -5,16 +5,17 @@ import {
     ComplaintStatus,
     ConversationStatus,
     RequestType,
-    TicketPriority,
     TicketStatus,
 } from './types.ts';
 import type {
     ChatRequest,
     ChatResponse,
     ComplaintDto,
-    ComplaintRequest,
+    ComplaintFilter,
     ConversationDetail,
     ConversationSummary,
+    CreateCustomerRequest,
+    CustomerDto,
     MessageDto,
     TicketDto,
     TicketFilter,
@@ -34,7 +35,8 @@ import type {
  *  - technical support raises a ticket and marks the conversation Escalated
  *  - service issues move the conversation to Troubleshooting, no ticket
  *  - complaints get keyword-derived severity and category; only High escalates
- *  - senders are "Customer" and "AI"; complaint references look like C-12345
+ *  - a reply to troubleshooting steps is read as an answer, not reclassified
+ *  - senders are "Customer" and "AI"; references look like TKT-000042 / CMP-6D4A1140
  *
  * Where the server is still a stub (the AI reply is the literal
  * "not implemented"), the mock returns plausible copy instead — the point is to
@@ -113,6 +115,41 @@ function complaintCategory(description: string): string {
     return 'General';
 }
 
+/** Mirrors TroubleshootingOutcomeDetector.Detect — negatives first, so "not fixed" is not "fixed". */
+function troubleshootingOutcome(message: string): 'resolved' | 'not-resolved' | 'unclear' {
+    const text = message.trim().toLowerCase();
+
+    const notResolved = [
+        'not working', 'still not', 'still broken', 'still down', 'still getting', 'still having',
+        'still no', 'still the same', "didn't work", 'didnt work', 'did not work', "didn't help",
+        'didnt help', 'did not help', "doesn't work", 'doesnt work', 'does not work', 'not fixed',
+        'not resolved', 'unresolved', 'same problem', 'same issue', 'no luck', 'no change',
+    ];
+    const resolved = [
+        'fixed', 'working now', 'works now', 'resolved', 'sorted', 'that worked', 'it worked',
+        'all good', 'problem solved', 'back up', 'back online', 'that helped',
+    ];
+
+    if (includesAny(text, notResolved) || startsWithWord(text, 'no')) return 'not-resolved';
+    if (includesAny(text, resolved) || startsWithWord(text, 'yes')) return 'resolved';
+    return 'unclear';
+}
+
+/** Matches "no", "no." and "no it isn't", but not "nothing" or "now". */
+function startsWithWord(text: string, word: string): boolean {
+    return text.startsWith(word) && (text.length === word.length || !/[a-z]/.test(text[word.length]));
+}
+
+/** Mirrors TicketReference.For — the reference is derived from the id, not stored. */
+function ticketReference(ticketId: number): string {
+    return `TKT-${String(ticketId).padStart(6, '0')}`;
+}
+
+/** Mirrors DbSeeder's email convention, so the mock's customers look like the seeded ones. */
+function emailFor(name: string): string {
+    return `${name.toLowerCase().replace(/[^a-z]/g, '')}@example.com`;
+}
+
 /** Stand-ins for the AI reply on the two paths the server hands to IAIService. */
 const AI_REPLIES: Record<
     typeof RequestType.CustomerEnquiry | typeof RequestType.ServiceIssue,
@@ -168,10 +205,10 @@ export class MockApiClient implements ApiClient {
         return this.nextId;
     }
 
-    /** The server draws these at random; sequential is enough for a stand-in. */
+    /** Mirrors ComplaintService.GenerateReference — CMP- plus 8 uppercase hex characters. */
     private reference(): string {
         this.nextReference += 1;
-        return `C-${this.nextReference}`;
+        return `CMP-${this.nextReference.toString(16).toUpperCase().padStart(8, '0')}`;
     }
 
     private seed(): void {
@@ -183,14 +220,14 @@ export class MockApiClient implements ApiClient {
                 conversationId: convoId,
                 sender: SENDER_CUSTOMER,
                 content: 'My router will not connect since the firmware update last night.',
-                timestamp: isoMinutesAgo(90),
+                createdAt: isoMinutesAgo(90),
             },
             {
                 id: this.id(),
                 conversationId: convoId,
                 sender: SENDER_AI,
                 content: ticketReply(ticketId),
-                timestamp: isoMinutesAgo(89),
+                createdAt: isoMinutesAgo(89),
             },
         ];
 
@@ -202,48 +239,38 @@ export class MockApiClient implements ApiClient {
             status: ConversationStatus.Escalated,
             createdAt: isoMinutesAgo(90),
             updatedAt: isoMinutesAgo(89),
-            messageCount: messages.length,
-            lastMessage: messages[messages.length - 1].content,
             messages,
         });
 
         this.tickets.push({
             id: ticketId,
+            reference: ticketReference(ticketId),
             customerId: 1,
-            customerName: customerName(1),
             conversationId: convoId,
             description: 'My router will not connect since the firmware update last night.',
             status: TicketStatus.AwaitingTechnician,
-            priority: TicketPriority.Medium,
-            createdAt: isoMinutesAgo(89),
-            updatedAt: isoMinutesAgo(89),
         });
 
+        const secondTicketId = this.id();
         this.tickets.push({
-            id: this.id(),
+            id: secondTicketId,
+            reference: ticketReference(secondTicketId),
             customerId: 2,
-            customerName: customerName(2),
             conversationId: null,
             description: 'Line fault reported by engineer; awaiting replacement part.',
             status: TicketStatus.InProgress,
-            priority: TicketPriority.Medium,
-            createdAt: isoMinutesAgo(300),
-            updatedAt: isoMinutesAgo(30),
         });
 
         this.complaints.push({
             id: this.id(),
-            customerId: 3,
-            customerName: customerName(3),
-            conversationId: null,
             reference: this.reference(),
+            customerId: 3,
+            conversationId: null,
             description: 'Third technician visit missed without notice. I am considering legal advice.',
             category: 'Technical Support',
             severity: ComplaintSeverity.High,
             status: ComplaintStatus.Open,
             escalated: true,
-            createdAt: isoMinutesAgo(1440),
-            updatedAt: isoMinutesAgo(200),
         });
     }
 
@@ -256,9 +283,18 @@ export class MockApiClient implements ApiClient {
             throw new ApiError('The assistant is temporarily unavailable.', 503, undefined, 'mock-0001');
         }
 
-        const requestType = classify(text);
-
         let conversation = this.conversations.find((c) => c.id === request.conversationId);
+
+        // A reply to troubleshooting steps is judged against the conversation's state rather
+        // than classified afresh: "still not working" is an answer, not a new enquiry.
+        if (conversation && conversation.status === ConversationStatus.Troubleshooting) {
+            const outcome = troubleshootingOutcome(text);
+            if (outcome !== 'unclear') {
+                return this.resolveTroubleshooting(conversation, text, outcome);
+            }
+        }
+
+        const requestType = classify(text);
         if (!conversation) {
             const convoId = this.id();
             conversation = {
@@ -269,8 +305,6 @@ export class MockApiClient implements ApiClient {
                 status: ConversationStatus.Active,
                 createdAt: nowIso(),
                 updatedAt: nowIso(),
-                messageCount: 0,
-                lastMessage: '',
                 messages: [],
             };
             this.conversations.push(conversation);
@@ -307,7 +341,9 @@ export class MockApiClient implements ApiClient {
             }
             case RequestType.ServiceIssue: {
                 conversation.status = ConversationStatus.Troubleshooting;
-                reply = AI_REPLIES[RequestType.ServiceIssue];
+                // ChatService appends this prompt to the AI's steps; the answer drives the
+                // troubleshooting branch on the next turn.
+                reply = `${AI_REPLIES[RequestType.ServiceIssue]}\n\nDid that fix the problem? Let me know - if it's still not working, I'll raise a support ticket for you.`;
                 break;
             }
             default: {
@@ -327,31 +363,73 @@ export class MockApiClient implements ApiClient {
         };
     }
 
+    /**
+     * Mirrors ChatService's troubleshooting branch: resolved closes the conversation,
+     * not resolved raises a ticket carrying the whole customer side of the thread.
+     */
+    private resolveTroubleshooting(
+        conversation: ConversationDetail,
+        text: string,
+        outcome: 'resolved' | 'not-resolved',
+    ): ChatResponse {
+        this.appendMessage(conversation, SENDER_CUSTOMER, text);
+
+        if (outcome === 'resolved') {
+            conversation.status = ConversationStatus.Resolved;
+            const reply =
+                "Great, I'm glad that's sorted. If anything else comes up, just send another message.";
+            this.appendMessage(conversation, SENDER_AI, reply);
+
+            return {
+                conversationId: conversation.id,
+                requestType: RequestType.ServiceIssue,
+                message: reply,
+                escalated: false,
+                ticketId: null,
+            };
+        }
+
+        const history = conversation.messages
+            .filter((m) => m.sender === SENDER_CUSTOMER)
+            .map((m) => m.content)
+            .join('\n');
+        const ticket = this.createTicket(conversation, history);
+        conversation.status = ConversationStatus.Escalated;
+
+        const reply =
+            `Sorry that didn't fix it. I've raised a support ticket (ID ${ticket.id}) with our ` +
+            "technical team, including the details you've given me. They'll be in touch shortly.";
+        this.appendMessage(conversation, SENDER_AI, reply);
+
+        return {
+            conversationId: conversation.id,
+            requestType: RequestType.ServiceIssue,
+            message: reply,
+            escalated: true,
+            ticketId: ticket.id,
+        };
+    }
+
     private appendMessage(conversation: ConversationDetail, sender: string, content: string) {
         conversation.messages.push({
             id: this.id(),
             conversationId: conversation.id,
             sender,
             content,
-            timestamp: nowIso(),
+            createdAt: nowIso(),
         });
-        conversation.messageCount = conversation.messages.length;
-        conversation.lastMessage = content;
         conversation.updatedAt = nowIso();
     }
 
     private createTicket(conversation: ConversationDetail, description: string): TicketDto {
+        const id = this.id();
         const ticket: TicketDto = {
-            id: this.id(),
+            id,
+            reference: ticketReference(id),
             customerId: conversation.customerId,
-            customerName: conversation.customerName,
             conversationId: conversation.id,
             description,
             status: TicketStatus.AwaitingTechnician,
-            // The server has no priority column yet; Medium until that is decided.
-            priority: TicketPriority.Medium,
-            createdAt: nowIso(),
-            updatedAt: nowIso(),
         };
         this.tickets.push(ticket);
         return ticket;
@@ -366,36 +444,62 @@ export class MockApiClient implements ApiClient {
         const severity = complaintSeverity(description);
         const complaint: ComplaintDto = {
             id: this.id(),
-            customerId,
-            customerName: customerName(customerId),
-            conversationId,
             reference: this.reference(),
+            customerId,
+            conversationId,
             description,
             category: category ?? complaintCategory(description),
             severity,
             status: ComplaintStatus.Open,
             escalated: severity === ComplaintSeverity.High,
-            createdAt: nowIso(),
-            updatedAt: nowIso(),
         };
         this.complaints.push(complaint);
         return complaint;
     }
 
-    async listConversations(signal?: AbortSignal): Promise<ConversationSummary[]> {
+    async getCustomer(id: number, signal?: AbortSignal): Promise<CustomerDto> {
         await delay(this.latencyMs, signal);
+        const found = CUSTOMERS.find((c) => c.id === id);
+        if (!found) throw new ApiError('Resource not found', 404, `Customer ${id} was not found.`);
+        return { id: found.id, name: found.name, email: emailFor(found.name) };
+    }
+
+    async createCustomer(
+        request: CreateCustomerRequest,
+        signal?: AbortSignal,
+    ): Promise<CustomerDto> {
+        await delay(this.latencyMs, signal);
+        const email = request.email.trim().toLowerCase();
+        if (CUSTOMERS.some((c) => emailFor(c.name) === email)) {
+            throw new ApiError('Conflict', 409, 'A customer with this email address already exists.');
+        }
+        const created = { id: this.id(), name: request.name.trim() };
+        CUSTOMERS.push(created);
+        return { ...created, email };
+    }
+
+    /** Mirrors GET /api/customers/{id}/conversations — one customer's, newest first. */
+    async listConversations(
+        customerId: number,
+        signal?: AbortSignal,
+    ): Promise<ConversationSummary[]> {
+        await delay(this.latencyMs, signal);
+        const name = CUSTOMERS.find((c) => c.id === customerId)?.name;
+        if (!name) {
+            throw new ApiError('Resource not found', 404, `Customer ${customerId} was not found.`);
+        }
+
         return this.conversations
+            .filter((c) => c.customerId === customerId)
             .map(
                 (c): ConversationSummary => ({
                     id: c.id,
                     customerId: c.customerId,
-                    customerName: c.customerName,
+                    customerName: name,
                     requestType: c.requestType,
                     status: c.status,
                     createdAt: c.createdAt,
                     updatedAt: c.updatedAt,
-                    messageCount: c.messageCount,
-                    lastMessage: c.lastMessage,
                 }),
             )
             .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -408,19 +512,19 @@ export class MockApiClient implements ApiClient {
         return structuredClone(found);
     }
 
+    /** Newest first, matching the server's OrderByDescending(t => t.Id). */
     async listTickets(filter?: TicketFilter, signal?: AbortSignal): Promise<TicketDto[]> {
         await delay(this.latencyMs, signal);
         return this.tickets
             .filter((t) => filter?.status === undefined || t.status === filter.status)
-            .filter((t) => filter?.priority === undefined || t.priority === filter.priority)
-            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+            .filter((t) => filter?.customerId === undefined || t.customerId === filter.customerId)
+            .sort((a, b) => b.id - a.id)
+            .map((t) => ({ ...t }));
     }
 
     async getTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
         await delay(this.latencyMs, signal);
-        const found = this.tickets.find((t) => t.id === id);
-        if (!found) throw new ApiError('Ticket not found.', 404);
-        return { ...found };
+        return { ...this.findTicket(id) };
     }
 
     async updateTicketStatus(
@@ -429,27 +533,75 @@ export class MockApiClient implements ApiClient {
         signal?: AbortSignal,
     ): Promise<TicketDto> {
         await delay(this.latencyMs, signal);
-        const found = this.tickets.find((t) => t.id === id);
-        if (!found) throw new ApiError('Ticket not found.', 404);
+        const found = this.findTicket(id);
+
+        if (found.status === status) return { ...found }; // nothing to change
+
+        if (found.status === TicketStatus.Closed) {
+            throw new ApiError(
+                'Conflict',
+                409,
+                `Ticket ${found.reference} is closed and cannot be reopened.`,
+            );
+        }
+
         found.status = status;
-        found.updatedAt = nowIso();
         return { ...found };
     }
 
-    async listComplaints(signal?: AbortSignal): Promise<ComplaintDto[]> {
+    async closeTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
         await delay(this.latencyMs, signal);
-        return [...this.complaints].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        const found = this.findTicket(id);
+
+        if (found.status === TicketStatus.Closed) {
+            throw new ApiError('Conflict', 409, `Ticket ${found.reference} is already closed.`);
+        }
+
+        found.status = TicketStatus.Closed;
+        return { ...found };
     }
 
-    async createComplaint(request: ComplaintRequest, signal?: AbortSignal): Promise<ComplaintDto> {
+    async listComplaints(filter?: ComplaintFilter, signal?: AbortSignal): Promise<ComplaintDto[]> {
         await delay(this.latencyMs, signal);
-        const complaint = this.recordComplaint(
-            request.customerId,
-            request.conversationId ?? null,
-            request.description,
-            request.category ?? undefined,
-        );
-        return { ...complaint };
+        return this.complaints
+            .filter((c) => filter?.status === undefined || c.status === filter.status)
+            .filter((c) => filter?.severity === undefined || c.severity === filter.severity)
+            .filter((c) => filter?.escalated === undefined || c.escalated === filter.escalated)
+            .sort((a, b) => b.id - a.id)
+            .map((c) => ({ ...c }));
+    }
+
+    async getComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
+        await delay(this.latencyMs, signal);
+        return { ...this.findComplaint(id) };
+    }
+
+    async escalateComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
+        await delay(this.latencyMs, signal);
+        const found = this.findComplaint(id);
+
+        if (found.escalated) {
+            throw new ApiError(
+                'Conflict',
+                409,
+                `Complaint ${found.reference} has already been escalated.`,
+            );
+        }
+
+        found.escalated = true;
+        return { ...found };
+    }
+
+    private findTicket(id: number): TicketDto {
+        const found = this.tickets.find((t) => t.id === id);
+        if (!found) throw new ApiError('Resource not found', 404, `Ticket ${id} was not found.`);
+        return found;
+    }
+
+    private findComplaint(id: number): ComplaintDto {
+        const found = this.complaints.find((c) => c.id === id);
+        if (!found) throw new ApiError('Resource not found', 404, `Complaint ${id} was not found.`);
+        return found;
     }
 }
 

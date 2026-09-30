@@ -4,9 +4,12 @@ import type {
     ChatRequest,
     ChatResponse,
     ComplaintDto,
-    ComplaintRequest,
+    ComplaintFilter,
     ConversationDetail,
     ConversationSummary,
+    CreateCustomerRequest,
+    CustomerDto,
+    MessageDto,
     TicketDto,
     TicketFilter,
     TicketStatus,
@@ -40,6 +43,21 @@ function describeErrors(errors: Record<string, string[]> | undefined): string | 
     if (!errors) return undefined;
     const lines = Object.values(errors).flat();
     return lines.length > 0 ? lines.join(' ') : undefined;
+}
+
+/**
+ * The server writes UTC, but EF Core reads `DateTime`s back out of SQLite with no `Kind`,
+ * so they serialise as "2026-09-23T14:01:50.43" with no offset. `new Date()` would read
+ * that as *local* time and every timestamp would drift by the browser's offset. Mark it as
+ * UTC unless the server already said otherwise.
+ */
+function asUtc(timestamp: string): string {
+    return /(?:Z|[+-]\d{2}:?\d{2})$/.test(timestamp) ? timestamp : `${timestamp}Z`;
+}
+
+/** "?a=1&b=2", or "" when nothing is set. */
+function suffix(query: URLSearchParams): string {
+    return query.size > 0 ? `?${query.toString()}` : '';
 }
 
 /**
@@ -103,20 +121,69 @@ export class HttpApiClient implements ApiClient {
         );
     }
 
-    listConversations(signal?: AbortSignal): Promise<ConversationSummary[]> {
-        return this.request<ConversationSummary[]>('/conversations', { method: 'GET' }, signal);
+    getCustomer(id: number, signal?: AbortSignal): Promise<CustomerDto> {
+        return this.request<CustomerDto>(`/customers/${id}`, { method: 'GET' }, signal);
     }
 
-    getConversation(id: number, signal?: AbortSignal): Promise<ConversationDetail> {
-        return this.request<ConversationDetail>(`/conversations/${id}`, { method: 'GET' }, signal);
+    createCustomer(request: CreateCustomerRequest, signal?: AbortSignal): Promise<CustomerDto> {
+        return this.request<CustomerDto>(
+            '/customers',
+            { method: 'POST', body: JSON.stringify(request) },
+            signal,
+        );
+    }
+
+    async listConversations(
+        customerId: number,
+        signal?: AbortSignal,
+    ): Promise<ConversationSummary[]> {
+        const [customer, conversations] = await Promise.all([
+            this.getCustomer(customerId, signal),
+            this.request<ConversationSummary[]>(
+                `/customers/${customerId}/conversations`,
+                { method: 'GET' },
+                signal,
+            ),
+        ]);
+
+        return conversations.map((conversation) => ({
+            ...conversation,
+            createdAt: asUtc(conversation.createdAt),
+            updatedAt: asUtc(conversation.updatedAt),
+            customerName: customer.name,
+        }));
+    }
+
+    /**
+     * Assembled from two endpoints — the conversation and its messages — because the
+     * server has no single read model for the pair. The customer's name is a third
+     * call, and is allowed to fail: a missing name should not hide the transcript.
+     */
+    async getConversation(id: number, signal?: AbortSignal): Promise<ConversationDetail> {
+        const [conversation, messages] = await Promise.all([
+            this.request<ConversationSummary>(`/conversations/${id}`, { method: 'GET' }, signal),
+            this.request<MessageDto[]>(`/conversations/${id}/messages`, { method: 'GET' }, signal),
+        ]);
+
+        const customer = await this.getCustomer(conversation.customerId, signal).catch(() => null);
+
+        return {
+            ...conversation,
+            createdAt: asUtc(conversation.createdAt),
+            updatedAt: asUtc(conversation.updatedAt),
+            customerName: customer?.name,
+            messages: messages.map((message) => ({
+                ...message,
+                createdAt: asUtc(message.createdAt),
+            })),
+        };
     }
 
     listTickets(filter?: TicketFilter, signal?: AbortSignal): Promise<TicketDto[]> {
         const query = new URLSearchParams();
         if (filter?.status !== undefined) query.set('status', String(filter.status));
-        if (filter?.priority !== undefined) query.set('priority', String(filter.priority));
-        const suffix = query.size > 0 ? `?${query.toString()}` : '';
-        return this.request<TicketDto[]>(`/tickets${suffix}`, { method: 'GET' }, signal);
+        if (filter?.customerId !== undefined) query.set('customerId', String(filter.customerId));
+        return this.request<TicketDto[]>(`/tickets${suffix(query)}`, { method: 'GET' }, signal);
     }
 
     getTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
@@ -130,19 +197,35 @@ export class HttpApiClient implements ApiClient {
     ): Promise<TicketDto> {
         return this.request<TicketDto>(
             `/tickets/${id}/status`,
-            { method: 'PATCH', body: JSON.stringify({ status }) },
+            { method: 'PUT', body: JSON.stringify({ status }) },
             signal,
         );
     }
 
-    listComplaints(signal?: AbortSignal): Promise<ComplaintDto[]> {
-        return this.request<ComplaintDto[]>('/complaints', { method: 'GET' }, signal);
+    closeTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
+        return this.request<TicketDto>(`/tickets/${id}/close`, { method: 'POST' }, signal);
     }
 
-    createComplaint(request: ComplaintRequest, signal?: AbortSignal): Promise<ComplaintDto> {
+    listComplaints(filter?: ComplaintFilter, signal?: AbortSignal): Promise<ComplaintDto[]> {
+        const query = new URLSearchParams();
+        if (filter?.status !== undefined) query.set('status', String(filter.status));
+        if (filter?.severity !== undefined) query.set('severity', String(filter.severity));
+        if (filter?.escalated !== undefined) query.set('escalated', String(filter.escalated));
+        return this.request<ComplaintDto[]>(
+            `/complaints${suffix(query)}`,
+            { method: 'GET' },
+            signal,
+        );
+    }
+
+    getComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
+        return this.request<ComplaintDto>(`/complaints/${id}`, { method: 'GET' }, signal);
+    }
+
+    escalateComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
         return this.request<ComplaintDto>(
-            '/complaints',
-            { method: 'POST', body: JSON.stringify(request) },
+            `/complaints/${id}/escalate`,
+            { method: 'POST' },
             signal,
         );
     }

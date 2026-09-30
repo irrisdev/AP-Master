@@ -44,8 +44,8 @@ export function ConversationThread({ conversationId, onClose }: ConversationThre
                         <RequestTypeBadge requestType={conversation.requestType} />
                         <ConversationStatusBadge status={conversation.status} />
                         <span className="card__meta">
-                            {conversation.customerName} · started{' '}
-                            {formatDateTime(conversation.createdAt)}
+                            {conversation.customerName ? `${conversation.customerName} · ` : ''}
+                            started {formatDateTime(conversation.createdAt)}
                         </span>
                     </div>
 

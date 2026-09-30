@@ -88,6 +88,144 @@ describe('HttpApiClient error handling', () => {
         expect(error.isRetryable).toBe(true);
     });
 
+    it('reads a conversation as UTC even though the server sends no offset', async () => {
+        // EF Core reads DateTimes back out of SQLite with no Kind, so the JSON has no "Z".
+        const conversation = {
+            id: 7,
+            customerId: 1,
+            requestType: 2,
+            status: 1,
+            createdAt: '2026-09-23T14:01:50.4376397',
+            updatedAt: '2026-09-23T14:01:50.472274',
+        };
+        const messages = [
+            {
+                id: 50,
+                conversationId: 7,
+                sender: 'Customer',
+                content: 'My broadband is slow',
+                createdAt: '2026-09-23T14:01:50.4376397',
+            },
+        ];
+
+        vi.stubGlobal(
+            'fetch',
+            vi.fn((url: string) =>
+                Promise.resolve(
+                    Response.json(
+                        url.endsWith('/messages')
+                            ? messages
+                            : url.includes('/customers/')
+                              ? { id: 1, name: 'John Doe', email: 'johndoe@example.com' }
+                              : conversation,
+                    ),
+                ),
+            ),
+        );
+
+        const detail = await new HttpApiClient().getConversation(7);
+
+        expect(detail.createdAt).toBe('2026-09-23T14:01:50.4376397Z');
+        expect(detail.messages[0].createdAt).toBe('2026-09-23T14:01:50.4376397Z');
+        expect(new Date(detail.createdAt).getUTCHours()).toBe(14);
+        // Assembled from the separate endpoints rather than one read model.
+        expect(detail.customerName).toBe('John Doe');
+    });
+
+    it('does not double-stamp a timestamp that already carries a zone', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn((url: string) =>
+                Promise.resolve(
+                    Response.json(
+                        url.endsWith('/messages')
+                            ? []
+                            : url.includes('/customers/')
+                              ? { id: 1, name: 'John Doe', email: 'j@example.com' }
+                              : {
+                                    id: 7,
+                                    customerId: 1,
+                                    requestType: 0,
+                                    status: 0,
+                                    createdAt: '2026-09-23T14:01:50Z',
+                                    updatedAt: '2026-09-23T14:01:50+01:00',
+                                },
+                    ),
+                ),
+            ),
+        );
+
+        const detail = await new HttpApiClient().getConversation(7);
+
+        expect(detail.createdAt).toBe('2026-09-23T14:01:50Z');
+        expect(detail.updatedAt).toBe('2026-09-23T14:01:50+01:00');
+    });
+
+    it('sends only the filters that are set, and omits the query string entirely when none are', async () => {
+        const fetchSpy = vi.fn(() => Promise.resolve(Response.json([])));
+        vi.stubGlobal('fetch', fetchSpy);
+        const client = new HttpApiClient();
+
+        await client.listTickets();
+        expect(fetchSpy).toHaveBeenLastCalledWith('/api/tickets', expect.anything());
+
+        await client.listTickets({ status: 1 });
+        expect(fetchSpy).toHaveBeenLastCalledWith('/api/tickets?status=1', expect.anything());
+
+        await client.listTickets({ status: 1, customerId: 7 });
+        expect(fetchSpy).toHaveBeenLastCalledWith(
+            '/api/tickets?status=1&customerId=7',
+            expect.anything(),
+        );
+    });
+
+    it('passes a false escalated filter rather than dropping it', async () => {
+        // `if (filter.escalated)` would silently lose "not escalated".
+        const fetchSpy = vi.fn(() => Promise.resolve(Response.json([])));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        await new HttpApiClient().listComplaints({ escalated: false });
+
+        expect(fetchSpy).toHaveBeenLastCalledWith(
+            '/api/complaints?escalated=false',
+            expect.anything(),
+        );
+    });
+
+    it('uses PUT for a ticket status change, as the server expects', async () => {
+        const fetchSpy = vi.fn(() => Promise.resolve(Response.json({ id: 1 })));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        await new HttpApiClient().updateTicketStatus(1, 2);
+
+        expect(fetchSpy).toHaveBeenLastCalledWith(
+            '/api/tickets/1/status',
+            expect.objectContaining({ method: 'PUT', body: '{"status":2}' }),
+        );
+    });
+
+    it('surfaces a 409 conflict with the explanation the server gave', async () => {
+        vi.stubGlobal(
+            'fetch',
+            respond(409, {
+                title: 'Conflict',
+                status: 409,
+                detail: 'Ticket TKT-000001 is already closed.',
+                traceId: '00-abc-00',
+            }),
+        );
+
+        const error = await new HttpApiClient().closeTicket(1).catch((cause: unknown) => cause);
+
+        expect(error).toMatchObject({
+            status: 409,
+            message: 'Conflict',
+            detail: 'Ticket TKT-000001 is already closed.',
+        });
+        // Retrying a conflict will not help.
+        expect((error as ApiError).isRetryable).toBe(false);
+    });
+
     it('lets an abort through untouched', async () => {
         vi.stubGlobal(
             'fetch',

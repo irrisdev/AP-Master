@@ -52,7 +52,7 @@ export function toTranscript(messages: MessageDto[]): TranscriptMessage[] {
         id: `msg-${message.id}`,
         role: roleFromSender(message.sender),
         content: message.content,
-        timestamp: message.timestamp,
+        timestamp: message.createdAt,
         status: 'sent',
     }));
 }

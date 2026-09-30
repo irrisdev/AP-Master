@@ -2,6 +2,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError, limits } from '../../api/index.ts';
+import { currentCustomerId } from '../../config.ts';
 import { instantMock, renderWithApi } from '../../test/render.tsx';
 import { ChatView } from './ChatView.tsx';
 
@@ -50,7 +51,9 @@ describe('ChatView', () => {
 
         await send(user, 'I want to make a complaint about my last engineer visit');
 
-        expect(await screen.findByText(/complaint reference is C-\d+/)).toBeInTheDocument();
+        expect(
+            await screen.findByText(/complaint reference is CMP-[0-9A-F]+/),
+        ).toBeInTheDocument();
         expect(screen.getByText('Complaint')).toBeInTheDocument();
         // Low severity: recorded, not escalated.
         expect(screen.queryByText('Complaint logged and escalated')).not.toBeInTheDocument();
@@ -76,9 +79,11 @@ describe('ChatView', () => {
         await waitFor(() => expect(screen.getAllByText(/Telegroup assistant/)).toHaveLength(2));
 
         // One conversation, not two: the id came back and was used on the next send.
-        const conversations = await api.listConversations();
+        const conversations = await api.listConversations(currentCustomerId);
         expect(conversations).toHaveLength(2); // one seeded, one from this test
-        expect(conversations[0].messageCount).toBe(4);
+
+        const { messages } = await api.getConversation(conversations[0].id);
+        expect(messages).toHaveLength(4);
     });
 
     it('blocks an over-long message before it reaches the server', async () => {

@@ -2,13 +2,11 @@ import {
     ComplaintSeverity,
     ComplaintStatus,
     ConversationStatus,
-    TicketPriority,
     TicketStatus,
     complaintSeverityLabel,
     complaintStatusLabel,
     conversationStatusLabel,
     requestTypeLabel,
-    ticketPriorityLabel,
     ticketStatusLabel,
 } from '../../api/index.ts';
 import type { RequestType } from '../../api/index.ts';
@@ -25,13 +23,6 @@ const ticketStatusTone: Record<TicketStatus, BadgeTone> = {
     [TicketStatus.InProgress]: 'info',
     [TicketStatus.Resolved]: 'success',
     [TicketStatus.Closed]: 'neutral',
-};
-
-const ticketPriorityTone: Record<TicketPriority, BadgeTone> = {
-    [TicketPriority.Low]: 'neutral',
-    [TicketPriority.Medium]: 'info',
-    [TicketPriority.High]: 'warning',
-    [TicketPriority.Critical]: 'danger',
 };
 
 const complaintStatusTone: Record<ComplaintStatus, BadgeTone> = {
@@ -56,14 +47,6 @@ const conversationStatusTone: Record<ConversationStatus, BadgeTone> = {
 
 export function TicketStatusBadge({ status }: { status: TicketStatus }) {
     return <Badge tone={ticketStatusTone[status]}>{ticketStatusLabel[status]}</Badge>;
-}
-
-export function TicketPriorityBadge({ priority }: { priority: TicketPriority }) {
-    return (
-        <Badge tone={ticketPriorityTone[priority]} label="Priority">
-            {ticketPriorityLabel[priority]}
-        </Badge>
-    );
 }
 
 export function ComplaintStatusBadge({ status }: { status: ComplaintStatus }) {

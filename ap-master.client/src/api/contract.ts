@@ -2,9 +2,11 @@ import type {
     ChatRequest,
     ChatResponse,
     ComplaintDto,
-    ComplaintRequest,
+    ComplaintFilter,
     ConversationDetail,
     ConversationSummary,
+    CreateCustomerRequest,
+    CustomerDto,
     TicketDto,
     TicketFilter,
     TicketStatus,
@@ -20,15 +22,26 @@ import type {
 export interface ApiClient {
     sendMessage(request: ChatRequest, signal?: AbortSignal): Promise<ChatResponse>;
 
-    listConversations(signal?: AbortSignal): Promise<ConversationSummary[]>;
+    getCustomer(id: number, signal?: AbortSignal): Promise<CustomerDto>;
+    createCustomer(request: CreateCustomerRequest, signal?: AbortSignal): Promise<CustomerDto>;
+
+    /**
+     * Conversations belong to a customer: the server has no "all conversations"
+     * endpoint, so the dashboard looks them up one customer at a time.
+     */
+    listConversations(customerId: number, signal?: AbortSignal): Promise<ConversationSummary[]>;
     getConversation(id: number, signal?: AbortSignal): Promise<ConversationDetail>;
 
     listTickets(filter?: TicketFilter, signal?: AbortSignal): Promise<TicketDto[]>;
     getTicket(id: number, signal?: AbortSignal): Promise<TicketDto>;
     updateTicketStatus(id: number, status: TicketStatus, signal?: AbortSignal): Promise<TicketDto>;
+    /** Closing is its own endpoint: a closed ticket cannot be reopened. */
+    closeTicket(id: number, signal?: AbortSignal): Promise<TicketDto>;
 
-    listComplaints(signal?: AbortSignal): Promise<ComplaintDto[]>;
-    createComplaint(request: ComplaintRequest, signal?: AbortSignal): Promise<ComplaintDto>;
+    listComplaints(filter?: ComplaintFilter, signal?: AbortSignal): Promise<ComplaintDto[]>;
+    getComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto>;
+    /** Manual escalation by an agent. Complaints are only ever created by the chat flow. */
+    escalateComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto>;
 }
 
 /**
@@ -53,6 +66,8 @@ export class ApiError extends Error {
 
     /** True when retrying the same request might plausibly succeed. */
     get isRetryable(): boolean {
+        // 501 means the endpoint does not exist yet: retrying it will never help.
+        if (this.status === 501) return false;
         return this.status === 0 || this.status === 429 || this.status >= 500;
     }
 }

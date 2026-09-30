@@ -4,11 +4,10 @@ import type { ApiError, TicketDto } from '../../api/index.ts';
 import { useAbortSignal } from '../../hooks/useAbortSignal.ts';
 import { useAsync } from '../../hooks/useAsync.ts';
 import { toApiError } from '../../lib/errors.ts';
-import { formatDateTime } from '../../lib/format.ts';
 import { Button } from '../ui/Button.tsx';
 import { ErrorBanner } from '../ui/ErrorBanner.tsx';
 import { Skeleton } from '../ui/Skeleton.tsx';
-import { TicketPriorityBadge, TicketStatusBadge } from './StatusBadges.tsx';
+import { TicketStatusBadge } from './StatusBadges.tsx';
 
 export interface TicketDetailProps {
     ticketId: number;
@@ -17,7 +16,12 @@ export interface TicketDetailProps {
     onPatched: (ticket: TicketDto) => void;
 }
 
-const statuses = Object.values(TicketStatus);
+/** Closing has its own endpoint and is irreversible, so it is not one of these. */
+const openStatuses = [
+    TicketStatus.AwaitingTechnician,
+    TicketStatus.InProgress,
+    TicketStatus.Resolved,
+];
 
 /**
  * A status change is applied locally first and rolled back if the server
@@ -34,14 +38,21 @@ export function TicketDetail({ ticketId, onClose, onPatched }: TicketDetailProps
     );
     const { data: ticket, error, loading, reload, setData } = useAsync(load);
 
+    const closed = ticket?.status === TicketStatus.Closed;
+
     const [saving, setSaving] = useState(false);
     const [updateError, setUpdateError] = useState<ApiError | null>(null);
 
-    async function changeStatus(next: TicketStatus) {
-        if (!ticket) return;
-
-        const previous = ticket;
-        const optimistic: TicketDto = { ...ticket, status: next };
+    /**
+     * Shows `next` immediately and rolls back if the server refuses — closing a
+     * ticket that is already closed comes back as a 409.
+     */
+    async function applyStatus(
+        previous: TicketDto,
+        next: TicketStatus,
+        send: () => Promise<TicketDto>,
+    ) {
+        const optimistic: TicketDto = { ...previous, status: next };
 
         setData(optimistic);
         onPatched(optimistic);
@@ -49,7 +60,7 @@ export function TicketDetail({ ticketId, onClose, onPatched }: TicketDetailProps
         setUpdateError(null);
 
         try {
-            const updated = await api.updateTicketStatus(ticket.id, next, signalFor());
+            const updated = await send();
             setData(updated);
             onPatched(updated);
             setSaving(false);
@@ -60,6 +71,18 @@ export function TicketDetail({ ticketId, onClose, onPatched }: TicketDetailProps
             setUpdateError(toApiError(cause));
             setSaving(false);
         }
+    }
+
+    function changeStatus(current: TicketDto, next: TicketStatus) {
+        return applyStatus(current, next, () =>
+            api.updateTicketStatus(current.id, next, signalFor()),
+        );
+    }
+
+    function closeTicket(current: TicketDto) {
+        return applyStatus(current, TicketStatus.Closed, () =>
+            api.closeTicket(current.id, signalFor()),
+        );
     }
 
     return (
@@ -79,23 +102,19 @@ export function TicketDetail({ ticketId, onClose, onPatched }: TicketDetailProps
                 <>
                     <dl className="detail__facts">
                         <div>
+                            <dt>Reference</dt>
+                            <dd>{ticket.reference}</dd>
+                        </div>
+                        <div>
                             <dt>Customer</dt>
-                            <dd>{ticket.customerName}</dd>
+                            <dd>#{ticket.customerId}</dd>
                         </div>
-                        <div>
-                            <dt>Raised</dt>
-                            <dd>{formatDateTime(ticket.createdAt)}</dd>
-                        </div>
-                        <div>
-                            <dt>Last updated</dt>
-                            <dd>{formatDateTime(ticket.updatedAt)}</dd>
-                        </div>
-                        <div>
-                            <dt>Priority</dt>
-                            <dd>
-                                <TicketPriorityBadge priority={ticket.priority} />
-                            </dd>
-                        </div>
+                        {ticket.conversationId != null ? (
+                            <div>
+                                <dt>Conversation</dt>
+                                <dd>#{ticket.conversationId}</dd>
+                            </div>
+                        ) : null}
                         <div>
                             <dt>Status</dt>
                             <dd>
@@ -108,19 +127,33 @@ export function TicketDetail({ ticketId, onClose, onPatched }: TicketDetailProps
 
                     {updateError ? <ErrorBanner error={updateError} /> : null}
 
-                    <div className="detail__actions" role="group" aria-label="Change status">
-                        {statuses.map((status) => (
+                    {closed ? (
+                        <p className="detail__note">
+                            This ticket is closed and cannot be reopened.
+                        </p>
+                    ) : (
+                        <div className="detail__actions" role="group" aria-label="Change status">
+                            {openStatuses.map((status) => (
+                                <Button
+                                    key={status}
+                                    size="sm"
+                                    variant={status === ticket.status ? 'primary' : 'secondary'}
+                                    disabled={status === ticket.status || saving}
+                                    onClick={() => void changeStatus(ticket, status)}
+                                >
+                                    {ticketStatusLabel[status]}
+                                </Button>
+                            ))}
                             <Button
-                                key={status}
                                 size="sm"
-                                variant={status === ticket.status ? 'primary' : 'secondary'}
-                                disabled={status === ticket.status || saving}
-                                onClick={() => void changeStatus(status)}
+                                variant="secondary"
+                                disabled={saving}
+                                onClick={() => void closeTicket(ticket)}
                             >
-                                {ticketStatusLabel[status]}
+                                Close ticket
                             </Button>
-                        ))}
-                    </div>
+                        </div>
+                    )}
                 </>
             ) : null}
         </section>
