@@ -12,7 +12,10 @@ public enum ClassificationSource
     AI,
 
     /// <summary>Nothing matched and the AI was unavailable: fell back to CustomerEnquiry.</summary>
-    Default
+    Default,
+
+    /// <summary>A follow-up the rules were unsure about, so it stayed with the conversation's current topic.</summary>
+    Context
 }
 
 /// <param name="Confidence">0 to 1 for rule-based results; null when the AI decided.</param>

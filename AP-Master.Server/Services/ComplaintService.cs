@@ -25,6 +25,9 @@ public interface IComplaintService
 
     Task<ComplaintResponse> GetByIdAsync(int id, CancellationToken cancellationToken = default);
     Task<ComplaintResponse> EscalateAsync(int id, CancellationToken cancellationToken = default);
+
+    /// <summary>The newest complaint in this conversation that is still Open or InProgress, if any.</summary>
+    Task<Complaint?> GetOpenForConversationAsync(int conversationId, CancellationToken cancellationToken = default);
 }
 
 public class ComplaintService : IComplaintService
@@ -37,6 +40,14 @@ public class ComplaintService : IComplaintService
         _context = context;
         _logger = logger;
     }
+
+    public Task<Complaint?> GetOpenForConversationAsync(int conversationId, CancellationToken cancellationToken = default) =>
+        _context.Complaints
+            .AsNoTracking()
+            .Where(c => c.ConversationId == conversationId &&
+                        (c.Status == ComplaintStatus.Open || c.Status == ComplaintStatus.InProgress))
+            .OrderByDescending(c => c.Id)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<Complaint> CreateComplaintAsync(int customerId, int? conversationId, string description, CancellationToken cancellationToken = default)
     {

@@ -4,7 +4,15 @@ namespace AP_Master.Server.Services;
 
 public interface IClassificationService
 {
+    /// <summary>Classifies the first message of a conversation.</summary>
     Task<ClassificationResult> ClassifyAsync(string message, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Classifies a follow-up message. A clear new topic (confident rules) wins; otherwise the message
+    /// is treated as part of the current topic, because short replies like "yes", "what else?" or
+    /// "it's the wifi" only make sense in context and should not be re-routed on their own.
+    /// </summary>
+    Task<ClassificationResult> ClassifyFollowUpAsync(string message, RequestType currentTopic, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -46,6 +54,18 @@ public class ClassificationService : IClassificationService
 
         LogResult(result, ruleResult);
         return result;
+    }
+
+    public Task<ClassificationResult> ClassifyFollowUpAsync(string message, RequestType currentTopic, CancellationToken cancellationToken = default)
+    {
+        var ruleResult = _rules.Classify(message);
+
+        var result = ruleResult.Confidence >= ConfidenceThreshold
+            ? ruleResult
+            : ruleResult with { RequestType = currentTopic, Source = ClassificationSource.Context };
+
+        LogResult(result, ruleResult);
+        return Task.FromResult(result);
     }
 
     private async Task<RequestType?> TryClassifyWithAIAsync(string message, CancellationToken cancellationToken)

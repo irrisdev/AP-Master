@@ -121,6 +121,11 @@ public class RuleBasedClassifier
         // Negations cancel out the "complain*" match.
         Add(RequestType.Complaint, -3,
             "no complain*", "not complaining", "not a complaint");
+        // Asking about an existing complaint is not a new complaint ("what was my complaint?").
+        Add(RequestType.Complaint, -3,
+            "my complaint was", "what my complaint", "what was my complaint", "status of my complaint",
+            "about my complaint", "remember my complaint", "my previous complaint", "my last complaint",
+            "complaint reference", "complaint number", "complaint ref");
 
         // ---- TechnicalSupport: equipment or work that needs a technician, so a ticket straight away ----
         Add(RequestType.TechnicalSupport, 3,
