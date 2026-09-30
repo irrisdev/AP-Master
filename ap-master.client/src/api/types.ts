@@ -96,6 +96,8 @@ export const complaintSeverityLabel: Record<ComplaintSeverity, string> = {
 export const limits = {
     chatMessageMin: 1,
     chatMessageMax: 2000,
+    customerNameMax: 100,
+    customerEmailMax: 254,
 } as const;
 
 /* ------------------------------------------------- DTOs mirrored from C# */

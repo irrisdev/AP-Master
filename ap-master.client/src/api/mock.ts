@@ -160,19 +160,16 @@ function isoMinutesAgo(minutes: number): string {
 }
 
 /** Mirrors Development/DbSeeder.cs */
-const CUSTOMERS: { id: number; name: string }[] = [
-    { id: 1, name: 'John Doe' },
-    { id: 2, name: 'Sarah Jones' },
-    { id: 3, name: 'Sophie Smith' },
-    { id: 4, name: 'Michael Brown' },
-    { id: 5, name: 'Emily Davis' },
-];
-
-function customerName(id: number): string {
-    return CUSTOMERS.find((c) => c.id === id)?.name ?? `Customer ${id}`;
-}
+const SEEDED_CUSTOMERS = ['John Doe', 'Sarah Jones', 'Sophie Smith', 'Michael Brown', 'Emily Davis'];
 
 export class MockApiClient implements ApiClient {
+    // Per instance, like the rest of the data, so a customer registered in one test
+    // (or one page load) never leaks into the next.
+    private customers: CustomerDto[] = SEEDED_CUSTOMERS.map((name, index) => ({
+        id: index + 1,
+        name,
+        email: emailFor(name),
+    }));
     private conversations: ConversationDetail[] = [];
     private tickets: TicketDto[] = [];
     private complaints: ComplaintDto[] = [];
@@ -185,6 +182,12 @@ export class MockApiClient implements ApiClient {
         this.latencyMs = options.latencyMs ?? DEFAULT_LATENCY_MS;
         this.slowLatencyMs = options.slowLatencyMs ?? DEFAULT_SLOW_LATENCY_MS;
         this.seed();
+    }
+
+    private findCustomer(id: number): CustomerDto {
+        const found = this.customers.find((c) => c.id === id);
+        if (!found) throw new ApiError('Resource not found', 404, `Customer ${id} was not found.`);
+        return found;
     }
 
     private id(): number {
@@ -221,7 +224,7 @@ export class MockApiClient implements ApiClient {
         this.conversations.push({
             id: convoId,
             customerId: 1,
-            customerName: customerName(1),
+            customerName: this.findCustomer(1).name,
             requestType: RequestType.TechnicalSupport,
             status: ConversationStatus.Escalated,
             createdAt: isoMinutesAgo(90),
@@ -270,7 +273,22 @@ export class MockApiClient implements ApiClient {
             throw new ApiError('The assistant is temporarily unavailable.', 503, undefined, 'mock-0001');
         }
 
-        let conversation = this.conversations.find((c) => c.id === request.conversationId);
+        // Mirrors ChatService: the customer must exist, and a conversation belonging to
+        // someone else is reported as not found rather than joined.
+        const customer = this.findCustomer(request.customerId);
+        let conversation: ConversationDetail | undefined;
+        if (request.conversationId != null) {
+            conversation = this.conversations.find(
+                (c) => c.id === request.conversationId && c.customerId === customer.id,
+            );
+            if (!conversation) {
+                throw new ApiError(
+                    'Resource not found',
+                    404,
+                    `Conversation ${request.conversationId} was not found.`,
+                );
+            }
+        }
 
         // A reply to troubleshooting steps is judged against the conversation's state rather
         // than classified afresh: "still not working" is an answer, not a new enquiry.
@@ -286,8 +304,8 @@ export class MockApiClient implements ApiClient {
             const convoId = this.id();
             conversation = {
                 id: convoId,
-                customerId: request.customerId,
-                customerName: customerName(request.customerId),
+                customerId: customer.id,
+                customerName: customer.name,
                 requestType,
                 status: ConversationStatus.Active,
                 createdAt: nowIso(),
@@ -446,9 +464,7 @@ export class MockApiClient implements ApiClient {
 
     async getCustomer(id: number, signal?: AbortSignal): Promise<CustomerDto> {
         await delay(this.latencyMs, signal);
-        const found = CUSTOMERS.find((c) => c.id === id);
-        if (!found) throw new ApiError('Resource not found', 404, `Customer ${id} was not found.`);
-        return { id: found.id, name: found.name, email: emailFor(found.name) };
+        return { ...this.findCustomer(id) };
     }
 
     async createCustomer(
@@ -456,13 +472,14 @@ export class MockApiClient implements ApiClient {
         signal?: AbortSignal,
     ): Promise<CustomerDto> {
         await delay(this.latencyMs, signal);
+        // Mirrors CustomerService.CreateAsync: trimmed name, lower-cased email, unique email.
         const email = request.email.trim().toLowerCase();
-        if (CUSTOMERS.some((c) => emailFor(c.name) === email)) {
+        if (this.customers.some((c) => c.email === email)) {
             throw new ApiError('Conflict', 409, 'A customer with this email address already exists.');
         }
-        const created = { id: this.id(), name: request.name.trim() };
-        CUSTOMERS.push(created);
-        return { ...created, email };
+        const created: CustomerDto = { id: this.id(), name: request.name.trim(), email };
+        this.customers.push(created);
+        return { ...created };
     }
 
     /** Mirrors GET /api/customers/{id}/conversations — one customer's, newest first. */
@@ -471,10 +488,7 @@ export class MockApiClient implements ApiClient {
         signal?: AbortSignal,
     ): Promise<ConversationSummary[]> {
         await delay(this.latencyMs, signal);
-        const name = CUSTOMERS.find((c) => c.id === customerId)?.name;
-        if (!name) {
-            throw new ApiError('Resource not found', 404, `Customer ${customerId} was not found.`);
-        }
+        const { name } = this.findCustomer(customerId);
 
         return this.conversations
             .filter((c) => c.customerId === customerId)

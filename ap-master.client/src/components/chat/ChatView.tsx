@@ -1,20 +1,28 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { RequestType, isAbort, requestTypeLabel, useApi } from '../../api/index.ts';
-import type { ApiError, ChatResponse } from '../../api/index.ts';
-import { currentCustomerId } from '../../config.ts';
+import type { ApiError, ChatResponse, CustomerDto } from '../../api/index.ts';
 import { useAbortSignal } from '../../hooks/useAbortSignal.ts';
+import { useAsync } from '../../hooks/useAsync.ts';
 import { toApiError } from '../../lib/errors.ts';
 import { Button } from '../ui/Button.tsx';
 import { ErrorBanner } from '../ui/ErrorBanner.tsx';
 import { Composer } from './Composer.tsx';
+import { ConversationHistory } from './ConversationHistory.tsx';
 import { MessageList } from './MessageList.tsx';
-import { nextEntryId } from './transcript.ts';
+import { nextEntryId, toTranscript } from './transcript.ts';
 import type { TranscriptEntry, TranscriptMessage } from './transcript.ts';
 import './chat.css';
 
 interface FailedSend {
     entryId: string;
     text: string;
+}
+
+export interface ChatViewProps {
+    /** Who the chat acts for. Every message is sent, and every conversation stored, under this id. */
+    customer: CustomerDto;
+    /** Leave this customer and pick another. */
+    onSwitchCustomer: () => void;
 }
 
 /**
@@ -24,10 +32,22 @@ interface FailedSend {
  * reconciled, so the interface never feels like it is waiting on the network.
  * A send that fails leaves the message on screen marked "Not sent" and offers a
  * retry against the same entry, so nothing the customer typed is lost.
+ *
+ * Beside the chat is the customer's own conversation history, read back from the
+ * server, so it is visible that what they say is kept against their account. Any past
+ * conversation can be reopened and carried on.
  */
-export function ChatView() {
+export function ChatView({ customer, onSwitchCustomer }: ChatViewProps) {
     const api = useApi();
     const signalFor = useAbortSignal();
+    const openSignalFor = useAbortSignal();
+
+    const loadHistory = useCallback(
+        (signal: AbortSignal) => api.listConversations(customer.id, signal),
+        [api, customer.id],
+    );
+    const history = useAsync(loadHistory, { keepPreviousData: true });
+    const [opening, setOpening] = useState(false);
 
     const [entries, setEntries] = useState<TranscriptEntry[]>([]);
     const [conversationId, setConversationId] = useState<number | null>(null);
@@ -69,7 +89,7 @@ export function ChatView() {
 
         try {
             const response = await api.sendMessage(
-                { customerId: currentCustomerId, conversationId, message: text },
+                { customerId: customer.id, conversationId, message: text },
                 signalFor(),
             );
 
@@ -93,6 +113,8 @@ export function ChatView() {
             ]);
             setFailed(null);
             setSending(false);
+            // A new conversation, or a changed status, should show in the history.
+            history.reload();
         } catch (cause) {
             // An abort means this component went away; there is nobody to tell.
             if (isAbort(cause)) return;
@@ -111,6 +133,24 @@ export function ChatView() {
         setFailed(null);
     }
 
+    async function openConversation(id: number) {
+        if (id === conversationId) return;
+
+        setOpening(true);
+        setError(null);
+        try {
+            const conversation = await api.getConversation(id, openSignalFor());
+            setEntries(toTranscript(conversation.messages));
+            setConversationId(conversation.id);
+            setDraft('');
+            setFailed(null);
+        } catch (cause) {
+            if (isAbort(cause)) return;
+            setError(toApiError(cause));
+        }
+        setOpening(false);
+    }
+
     return (
         <section className="chat" aria-label="Chat with Telegroup">
             <header className="chat__header">
@@ -127,34 +167,74 @@ export function ChatView() {
                 ) : null}
             </header>
 
-            <MessageList
-                entries={entries}
-                awaitingReply={sending}
-                empty={
-                    <>
-                        Start by telling us what has happened — for example{' '}
-                        <em>“my broadband has been slow since Tuesday”</em>.
-                    </>
-                }
-            />
+            <div className="chat__identity">
+                <span className="chat__avatar" aria-hidden="true">
+                    {initials(customer.name)}
+                </span>
+                <p className="chat__identity-text">
+                    <span className="visually-hidden">Chatting as </span>
+                    <strong>{customer.name}</strong>
+                    <span className="chat__identity-meta">
+                        Customer #{customer.id} · {customer.email}
+                    </span>
+                </p>
+                <Button variant="secondary" size="sm" onClick={onSwitchCustomer}>
+                    Switch customer
+                </Button>
+            </div>
 
-            {error ? (
-                <div className="chat__error">
-                    <ErrorBanner
-                        error={error}
-                        onRetry={failed ? () => void send(failed.text, failed.entryId) : undefined}
+            <div className="chat__layout">
+                <ConversationHistory
+                    conversations={history.data}
+                    error={history.error}
+                    onRetry={history.reload}
+                    activeId={conversationId}
+                    onOpen={(id) => void openConversation(id)}
+                    opening={opening || sending}
+                />
+
+                <div className="chat__main">
+                    <MessageList
+                        entries={entries}
+                        awaitingReply={sending}
+                        empty={
+                            <>
+                                Start by telling us what has happened — for example{' '}
+                                <em>“my broadband has been slow since Tuesday”</em>.
+                            </>
+                        }
+                    />
+
+                    {error ? (
+                        <div className="chat__error">
+                            <ErrorBanner
+                                error={error}
+                                onRetry={
+                                    failed ? () => void send(failed.text, failed.entryId) : undefined
+                                }
+                            />
+                        </div>
+                    ) : null}
+
+                    <Composer
+                        value={draft}
+                        onChange={setDraft}
+                        onSend={() => void send(draft)}
+                        sending={sending}
                     />
                 </div>
-            ) : null}
-
-            <Composer
-                value={draft}
-                onChange={setDraft}
-                onSend={() => void send(draft)}
-                sending={sending}
-            />
+            </div>
         </section>
     );
+}
+
+/** "Jane Doe" becomes "JD", for the avatar beside the customer's name. */
+function initials(name: string): string {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return '?';
+    const first = parts[0][0];
+    const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+    return (first + last).toUpperCase();
 }
 
 /** Turns the triage outcome into something the customer can actually read. */

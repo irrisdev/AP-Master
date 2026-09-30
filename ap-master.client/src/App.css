@@ -17,12 +17,14 @@
     top: var(--space-3);
 }
 
+/* A dark masthead with a thin highlight rule, so the working area below reads as the page. */
 .app-header {
     position: sticky;
     top: 0;
     z-index: 5;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
+    border-bottom: 3px solid var(--highlight);
+    background: var(--header-bg);
+    color: var(--header-text);
 }
 
 .app-header__inner {
@@ -34,13 +36,13 @@
     max-width: var(--content-max);
     min-height: var(--header-height);
     margin: 0 auto;
-    padding: var(--space-2) var(--space-4);
+    padding: 0 var(--space-4);
 }
 
 .brand {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
+    gap: var(--space-3);
 }
 
 .brand__mark {
@@ -49,48 +51,82 @@
     width: 28px;
     height: 28px;
     border-radius: var(--radius-sm);
-    background: var(--accent);
-    color: var(--on-accent);
+    background: var(--highlight);
+    color: var(--header-bg);
     font-weight: 700;
 }
 
 .brand__name {
-    font-weight: 700;
-    color: var(--text);
+    font-size: var(--text-lg);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--header-text);
 }
 
 .brand__product {
     font-size: var(--text-sm);
-    color: var(--text-muted);
-    padding-left: var(--space-2);
-    border-left: 1px solid var(--border);
+    color: var(--header-muted);
+    padding-left: var(--space-3);
+    border-left: 1px solid var(--header-hover);
 }
 
 .app-nav {
     display: flex;
+    align-self: stretch;
     gap: var(--space-1);
+    margin-left: var(--space-4);
     margin-right: auto;
 }
 
+/* Full-height tabs: the active one is marked by a bar along the bottom edge. */
 .app-nav__link {
-    padding: var(--space-2) var(--space-3);
+    padding: 0 var(--space-4);
     border: 0;
-    border-radius: var(--radius-md);
+    border-bottom: 3px solid transparent;
+    margin-bottom: -3px;
     background: none;
     font: inherit;
     font-weight: 500;
-    color: var(--text-muted);
+    color: var(--header-muted);
     cursor: pointer;
 }
 
 .app-nav__link:hover {
-    background: var(--surface-alt);
-    color: var(--text);
+    background: var(--header-hover);
+    color: var(--header-text);
 }
 
 .app-nav__link--active {
-    background: var(--accent-soft);
-    color: var(--accent);
+    border-bottom-color: var(--header-text);
+    color: var(--header-text);
+}
+
+.app-nav__link:focus-visible {
+    outline-color: var(--highlight);
+    outline-offset: -2px;
+}
+
+.theme-toggle {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--header-hover);
+    border-radius: var(--radius-full);
+    background: none;
+    color: var(--header-text);
+    cursor: pointer;
+    transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.theme-toggle:hover {
+    background: var(--header-hover);
+    border-color: var(--header-muted);
+}
+
+.theme-toggle:focus-visible {
+    outline-color: var(--highlight);
 }
 
 .app-main {
@@ -99,7 +135,7 @@
     width: 100%;
     max-width: var(--content-max);
     margin: 0 auto;
-    padding: var(--space-5) var(--space-4);
+    padding: var(--space-6) var(--space-4) var(--space-5);
     display: flex;
     flex-direction: column;
     overflow-y: auto;
@@ -112,6 +148,14 @@
 
     .app-header__inner {
         gap: var(--space-2);
+    }
+
+    .app-nav {
+        margin-left: 0;
+    }
+
+    .app-nav__link {
+        padding: 0 var(--space-3);
     }
 
     .app-main {

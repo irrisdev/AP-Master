@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { apiMode } from './api/index.ts';
+import type { CustomerDto } from './api/index.ts';
 import { ChatView } from './components/chat/ChatView.tsx';
+import { CustomerSetup } from './components/customer/CustomerSetup.tsx';
 import { DashboardView } from './components/dashboard/DashboardView.tsx';
 import { Badge } from './components/ui/Badge.tsx';
+import { ThemeToggle } from './components/ui/ThemeToggle.tsx';
 import './components/ui/ui.css';
 import './App.css';
 
@@ -16,9 +19,13 @@ const views: { id: View; label: string }[] = [
 /**
  * Two views, switched by state. A router would add a dependency and a build step
  * for one decision; if deep links are ever needed, this is the place to add one.
+ *
+ * The chosen customer lives here, above both views, so it survives a trip to the
+ * dashboard and the dashboard can open on that customer's conversations.
  */
 function App() {
     const [view, setView] = useState<View>('chat');
+    const [customer, setCustomer] = useState<CustomerDto | null>(null);
 
     return (
         <>
@@ -55,11 +62,24 @@ function App() {
                     {apiMode === 'mock' ? (
                         <Badge tone="warning">Demo data — no backend connected</Badge>
                     ) : null}
+
+                    <ThemeToggle />
                 </div>
             </header>
 
             <main className="app-main" id="main">
-                {view === 'chat' ? <ChatView /> : <DashboardView />}
+                {view === 'dashboard' ? (
+                    <DashboardView customerId={customer?.id} />
+                ) : customer ? (
+                    // Keyed by customer, so switching customer starts a clean chat.
+                    <ChatView
+                        key={customer.id}
+                        customer={customer}
+                        onSwitchCustomer={() => setCustomer(null)}
+                    />
+                ) : (
+                    <CustomerSetup onReady={setCustomer} />
+                )}
             </main>
         </>
     );

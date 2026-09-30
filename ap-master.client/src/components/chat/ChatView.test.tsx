@@ -1,10 +1,20 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError, limits } from '../../api/index.ts';
-import { currentCustomerId } from '../../config.ts';
+import type { CustomerDto } from '../../api/index.ts';
 import { instantMock, renderWithApi } from '../../test/render.tsx';
 import { ChatView } from './ChatView.tsx';
+
+/** The first seeded customer; the mock seeds one conversation (#101) for them. */
+const johnDoe: CustomerDto = { id: 1, name: 'John Doe', email: 'johndoe@example.com' };
+
+function noop() {}
+
+/** The transcript itself, as opposed to the history list beside it, which repeats the badges. */
+function transcript() {
+    return within(screen.getByRole('log', { name: 'Conversation' }));
+}
 
 function composer() {
     return screen.getByRole('textbox', { name: 'Your message' });
@@ -18,17 +28,17 @@ async function send(user: ReturnType<typeof userEvent.setup>, text: string) {
 describe('ChatView', () => {
     it('shows the assistant reply and how the message was triaged', async () => {
         const user = userEvent.setup();
-        renderWithApi(<ChatView />);
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />);
 
         await send(user, 'My broadband has been slow since Tuesday');
 
         expect(await screen.findByText(/checking the network status/i)).toBeInTheDocument();
-        expect(screen.getByText('Service issue')).toBeInTheDocument();
+        expect(transcript().getByText('Service issue')).toBeInTheDocument();
     });
 
     it('tells the customer when a ticket has been raised', async () => {
         const user = userEvent.setup();
-        renderWithApi(<ChatView />);
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />);
 
         await send(user, 'My router will not connect');
 
@@ -37,7 +47,7 @@ describe('ChatView', () => {
 
     it('does not call a ticket a complaint, even though the server flags it escalated', async () => {
         const user = userEvent.setup();
-        renderWithApi(<ChatView />);
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />);
 
         await send(user, 'My router will not connect');
 
@@ -47,21 +57,21 @@ describe('ChatView', () => {
 
     it('records a complaint with its reference', async () => {
         const user = userEvent.setup();
-        renderWithApi(<ChatView />);
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />);
 
         await send(user, 'I want to make a complaint about my last engineer visit');
 
         expect(
             await screen.findByText(/complaint reference is CMP-[0-9A-F]+/),
         ).toBeInTheDocument();
-        expect(screen.getByText('Complaint')).toBeInTheDocument();
+        expect(transcript().getByText('Complaint')).toBeInTheDocument();
         // Low severity: recorded, not escalated.
         expect(screen.queryByText('Complaint logged and escalated')).not.toBeInTheDocument();
     });
 
     it('tells the customer when a serious complaint has been escalated', async () => {
         const user = userEvent.setup();
-        renderWithApi(<ChatView />);
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />);
 
         await send(user, 'I am unhappy and I am considering legal action over the missed visits');
 
@@ -70,7 +80,7 @@ describe('ChatView', () => {
 
     it('threads follow-up messages into the same conversation', async () => {
         const user = userEvent.setup();
-        const { api } = renderWithApi(<ChatView />);
+        const { api } = renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />);
 
         await send(user, 'My broadband is slow');
         await screen.findByText(/checking the network status/i);
@@ -79,7 +89,7 @@ describe('ChatView', () => {
         await waitFor(() => expect(screen.getAllByText(/Telegroup assistant/)).toHaveLength(2));
 
         // One conversation, not two: the id came back and was used on the next send.
-        const conversations = await api.listConversations(currentCustomerId);
+        const conversations = await api.listConversations(johnDoe.id);
         expect(conversations).toHaveLength(2); // one seeded, one from this test
 
         const { messages } = await api.getConversation(conversations[0].id);
@@ -90,7 +100,7 @@ describe('ChatView', () => {
         const user = userEvent.setup();
         const api = instantMock();
         const spy = vi.spyOn(api, 'sendMessage');
-        renderWithApi(<ChatView />, api);
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />, api);
 
         await user.click(composer());
         await user.paste('x'.repeat(limits.chatMessageMax + 1));
@@ -104,7 +114,7 @@ describe('ChatView', () => {
 
     it('sends on Enter and starts a new line on Shift+Enter', async () => {
         const user = userEvent.setup();
-        renderWithApi(<ChatView />);
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />);
 
         await user.type(composer(), 'first line{Shift>}{Enter}{/Shift}second line');
         expect(composer()).toHaveValue('first line\nsecond line');
@@ -119,7 +129,7 @@ describe('ChatView', () => {
         vi.spyOn(api, 'sendMessage').mockRejectedValueOnce(
             new ApiError('The assistant is temporarily unavailable.', 503),
         );
-        renderWithApi(<ChatView />, api);
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />, api);
 
         await send(user, 'Is my bill correct?');
 
@@ -142,7 +152,7 @@ describe('ChatView', () => {
         const user = userEvent.setup();
         const api = instantMock();
         vi.spyOn(api, 'sendMessage').mockRejectedValue(new ApiError('That is not valid.', 400));
-        renderWithApi(<ChatView />, api);
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />, api);
 
         await send(user, 'hello');
 
@@ -151,16 +161,89 @@ describe('ChatView', () => {
     });
 });
 
+describe('ChatView customer history', () => {
+    function history() {
+        return screen.getByRole('navigation', { name: 'Your conversations' });
+    }
+
+    it('says who the chat is acting for', () => {
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />);
+
+        expect(screen.getByText('John Doe')).toBeInTheDocument();
+        expect(screen.getByText('Customer #1 · johndoe@example.com')).toBeInTheDocument();
+        expect(screen.getByText('JD')).toBeInTheDocument();
+    });
+
+    it('lists the conversations already stored for this customer', async () => {
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />);
+
+        expect(
+            await within(history()).findByRole('button', { name: /Conversation #101/ }),
+        ).toBeInTheDocument();
+    });
+
+    it('adds a new conversation to the history once it has been saved', async () => {
+        const user = userEvent.setup();
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />);
+        await within(history()).findByRole('button', { name: /Conversation #101/ });
+
+        await send(user, 'What are your opening hours?');
+        await screen.findByText(/Thanks for getting in touch/i);
+
+        await waitFor(() =>
+            expect(within(history()).getAllByRole('button', { name: /^Conversation #/ })).toHaveLength(2),
+        );
+        // The conversation on screen is the one marked as current.
+        const current = within(history()).getByRole('button', { current: true });
+        expect(current).not.toHaveAccessibleName(/Conversation #101/);
+    });
+
+    it('reopens a past conversation and carries it on', async () => {
+        const user = userEvent.setup();
+        const api = instantMock();
+        const spy = vi.spyOn(api, 'sendMessage');
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />, api);
+
+        await user.click(await within(history()).findByRole('button', { name: /Conversation #101/ }));
+
+        expect(
+            await screen.findByText('My router will not connect since the firmware update last night.'),
+        ).toBeInTheDocument();
+
+        await send(user, 'Any update on this?');
+        await waitFor(() => expect(spy).toHaveBeenCalled());
+        expect(spy.mock.calls[0][0]).toMatchObject({ customerId: 1, conversationId: 101 });
+    });
+
+    it('does not show one customer the conversations of another', async () => {
+        const emily: CustomerDto = { id: 5, name: 'Emily Davis', email: 'emilydavis@example.com' };
+        renderWithApi(<ChatView customer={emily} onSwitchCustomer={noop} />);
+
+        expect(await within(history()).findByText(/Nothing yet/)).toBeInTheDocument();
+        expect(within(history()).queryByRole('button', { name: /Conversation #101/ })).not.toBeInTheDocument();
+    });
+
+    it('hands back to the caller to switch customer', async () => {
+        const user = userEvent.setup();
+        const onSwitchCustomer = vi.fn();
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={onSwitchCustomer} />);
+
+        await user.click(screen.getByRole('button', { name: 'Switch customer' }));
+
+        expect(onSwitchCustomer).toHaveBeenCalledOnce();
+    });
+});
+
 describe('ChatView accessibility', () => {
     it('announces replies through a live region', () => {
-        renderWithApi(<ChatView />);
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />);
 
         const log = screen.getByRole('log', { name: 'Conversation' });
         expect(log).toHaveAttribute('aria-live', 'polite');
     });
 
     it('labels the composer and its send button', () => {
-        renderWithApi(<ChatView />);
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />);
 
         expect(composer()).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
@@ -170,7 +253,7 @@ describe('ChatView accessibility', () => {
         const user = userEvent.setup();
         const api = instantMock();
         vi.spyOn(api, 'sendMessage').mockRejectedValue(new ApiError('Server fell over.', 500));
-        renderWithApi(<ChatView />, api);
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />, api);
 
         await send(user, 'hello');
 

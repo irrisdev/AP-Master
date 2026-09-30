@@ -1,0 +1,55 @@
+/* Choosing who the chat acts for. Colours come from the tokens in index.css. */
+
+.customer-setup {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+}
+
+.customer-setup__subtitle {
+    margin-top: var(--space-1);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+}
+
+.customer-setup__card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-5);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--heading);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+}
+
+.customer-setup__card .tabs {
+    margin: calc(var(--space-2) * -1) 0 0;
+}
+
+.customer-setup__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.customer-setup__form .btn {
+    align-self: flex-start;
+    margin-top: var(--space-2);
+}
+
+.customer-setup__note {
+    margin-top: var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+}
+
+@media (max-width: 560px) {
+    .customer-setup__card {
+        padding: var(--space-4);
+    }
+}

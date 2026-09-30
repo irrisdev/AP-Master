@@ -1,5 +1,5 @@
 /**
- * Authentication is out of scope for this artefact, so the client always acts as
- * one known customer. Replace this with the signed-in user when auth exists.
+ * The first seeded customer (DbSeeder). The dashboard's conversation lookup starts
+ * here when nobody has chosen a customer in the chat yet.
  */
-export const currentCustomerId = 1;
+export const demoCustomerId = 1;

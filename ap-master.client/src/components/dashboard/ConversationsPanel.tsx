@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useApi } from '../../api/index.ts';
-import { currentCustomerId } from '../../config.ts';
+import { demoCustomerId } from '../../config.ts';
 import { useAsync } from '../../hooks/useAsync.ts';
 import { formatRelative } from '../../lib/format.ts';
 import { Button } from '../ui/Button.tsx';
@@ -16,10 +16,15 @@ import { ConversationStatusBadge, RequestTypeBadge } from './StatusBadges.tsx';
  * GET /api/customers/{id}/conversations and has no "everything" endpoint, so the
  * agent looks a customer up rather than scrolling one global queue.
  */
-export function ConversationsPanel() {
+export interface ConversationsPanelProps {
+    /** Whose conversations to show first; falls back to the first demo customer. */
+    initialCustomerId?: number;
+}
+
+export function ConversationsPanel({ initialCustomerId = demoCustomerId }: ConversationsPanelProps) {
     const api = useApi();
-    const [customerId, setCustomerId] = useState(currentCustomerId);
-    const [draftId, setDraftId] = useState(String(currentCustomerId));
+    const [customerId, setCustomerId] = useState(initialCustomerId);
+    const [draftId, setDraftId] = useState(String(initialCustomerId));
     const [selectedId, setSelectedId] = useState<number | null>(null);
 
     const load = useCallback(
