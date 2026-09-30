@@ -17,6 +17,15 @@ export interface AsyncResult<T> {
     setData: Dispatch<SetStateAction<T | null>>;
 }
 
+export interface AsyncOptions {
+    /**
+     * Keep showing the last successful data while a reload is in flight, instead of
+     * dropping back to null. For lists that refresh in place, where a skeleton on
+     * every refresh would flicker. `loading` is still true during the reload.
+     */
+    keepPreviousData?: boolean;
+}
+
 interface Outcome<T> {
     /** The request this outcome answers. */
     request: object;
@@ -37,7 +46,7 @@ interface Outcome<T> {
  * Aborts are never surfaced as errors — cancelling a request the user no longer
  * wants is not a failure.
  */
-export function useAsync<T>(operation: AsyncOperation<T>): AsyncResult<T> {
+export function useAsync<T>(operation: AsyncOperation<T>, options: AsyncOptions = {}): AsyncResult<T> {
     const [attempt, setAttempt] = useState(0);
     const [outcome, setOutcome] = useState<Outcome<T> | null>(null);
 
@@ -80,8 +89,10 @@ export function useAsync<T>(operation: AsyncOperation<T>): AsyncResult<T> {
         });
     }, []);
 
+    const previous = options.keepPreviousData ? (outcome?.data ?? null) : null;
+
     return {
-        data: current?.data ?? null,
+        data: current ? current.data : previous,
         error: current?.error ?? null,
         loading: current === null,
         reload,
