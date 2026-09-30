@@ -1,3 +1,4 @@
+import { classify } from './classifier.ts';
 import { ApiError } from './contract.ts';
 import type { ApiClient } from './contract.ts';
 import {
@@ -31,16 +32,17 @@ import type {
  *
  * It mirrors the server's ChatService as it actually behaves, so the UI built
  * against it does not surprise anyone at integration:
- *  - classification uses the same keywords as ClassificationService
+ *  - classification is a port of RuleBasedClassifier (see classifier.ts)
  *  - technical support raises a ticket and marks the conversation Escalated
  *  - service issues move the conversation to Troubleshooting, no ticket
  *  - complaints get keyword-derived severity and category; only High escalates
  *  - a reply to troubleshooting steps is read as an answer, not reclassified
  *  - senders are "Customer" and "AI"; references look like TKT-000042 / CMP-6D4A1140
  *
- * Where the server is still a stub (the AI reply is the literal
- * "not implemented"), the mock returns plausible copy instead — the point is to
- * exercise the UI, not to reproduce a placeholder.
+ * It stands in for the server running without an AI key: classification is the rule
+ * result alone (the server only asks the AI when the rules are unsure), and replies
+ * are plausible fixed copy rather than DummyAIService's bracketed placeholder — the
+ * point is to exercise the UI, not to reproduce a placeholder.
  *
  * Two testing affordances, so error and latency states can be built properly:
  *  - a message containing "trigger-error" makes sendMessage fail with a 503
@@ -77,21 +79,6 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 
 function includesAny(text: string, keywords: string[]): boolean {
     return keywords.some((keyword) => text.includes(keyword));
-}
-
-/** Mirrors Services/ClassificationService.cs */
-function classify(message: string): RequestType {
-    const text = message.toLowerCase();
-    if (includesAny(text, ['complaint', 'complain', 'unhappy', 'disappointed'])) {
-        return RequestType.Complaint;
-    }
-    if (includesAny(text, ['router', 'technical', 'cannot connect', "can't connect"])) {
-        return RequestType.TechnicalSupport;
-    }
-    if (includesAny(text, ['slow', 'outage', 'not working', 'disconnect'])) {
-        return RequestType.ServiceIssue;
-    }
-    return RequestType.CustomerEnquiry;
 }
 
 /** Mirrors ComplaintService.DetermineSeverity */
@@ -294,7 +281,7 @@ export class MockApiClient implements ApiClient {
             }
         }
 
-        const requestType = classify(text);
+        const requestType = classify(text).requestType;
         if (!conversation) {
             const convoId = this.id();
             conversation = {
@@ -336,7 +323,7 @@ export class MockApiClient implements ApiClient {
                 conversation.status = escalated
                     ? ConversationStatus.Escalated
                     : ConversationStatus.Active;
-                reply = `Your complaint has been recorded. Your complaint reference is ${complaint.reference}`;
+                reply = complaintReply(complaint);
                 break;
             }
             case RequestType.ServiceIssue: {
@@ -609,7 +596,16 @@ export class MockApiClient implements ApiClient {
 function ticketReply(ticketId: number): string {
     return (
         'Your request has been passed to our technical support team. ' +
-        `A support ticket has been created with ID: ${ticketId}. ` +
-        'Our team will reach out to you shortly.'
+        `A support ticket has been created with ID ${ticketId}. ` +
+        'Our team will be in touch shortly.'
     );
+}
+
+/** The server's own wording for a logged complaint; it never claims one is resolved. */
+function complaintReply(complaint: ComplaintDto): string {
+    return complaint.escalated
+        ? "I'm sorry to hear about this. Your complaint has been recorded and escalated to a senior member of our team. " +
+              `Your complaint reference is ${complaint.reference}.`
+        : "I'm sorry to hear about this. Your complaint has been recorded and will be reviewed by our customer service team. " +
+              `Your complaint reference is ${complaint.reference}.`;
 }
