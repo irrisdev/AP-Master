@@ -5,16 +5,16 @@ in GitHub Actions ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml))
 
 | Level | Question it answers | Tooling | Where | Count |
 |---|---|---|---|---|
-| Unit | Does each class follow its rules in isolation? | xUnit; SQLite in-memory; fake AI | `AP-Server-Tests/Unit`, `AP-Server-Tests/*.cs` | 113 server tests |
-| Integration | Does the running application behave correctly over HTTP? | xUnit + `WebApplicationFactory` (the real pipeline, EF Core, rate limiting, SignalR) | `AP-Server-Tests/Integration` | 20 server tests |
-| Client | Do the UI components and API client behave correctly? | Vitest + Testing Library | `ap-master.client/src/**/*.test.ts(x)` | 124 client tests |
+| Unit | Does each class follow its rules in isolation? | xUnit; SQLite in-memory; fake AI | `AP-Server-Tests/Unit`, `AP-Server-Tests/*.cs` | 118 server tests |
+| Integration | Does the running application behave correctly over HTTP? | xUnit + `WebApplicationFactory` (the real pipeline, EF Core, rate limiting, SignalR) | `AP-Server-Tests/Integration` | 21 server tests |
+| Client | Do the UI components and API client behave correctly? | Vitest + Testing Library | `ap-master.client/src/**/*.test.ts(x)` | 151 client tests |
 | System | Does the built container start and answer a chat message? | Docker + curl, in CI | `docker` job in `ci.yml` | smoke test |
 | Load | Is concurrency controlled under simultaneous users? | `tools/load_test.py` | [load-test.md](load-test.md) | 4 scenarios |
 | Acceptance | Does it meet the user stories for a real user? | Manual script | [user-acceptance-tests.md](user-acceptance-tests.md) | 12 cases |
 
 Coverage, measured by Coverlet over hand-written code with generated migrations excluded:
-- **Server:** 90.4 % of lines and 84.1 % of branches.
-- **Client:** 85 % of statements.
+- **Server:** 90.5 % of lines and 83.5 % of branches.
+- **Client:** 86.4 % of statements.
 
 ## Running the tests
 
@@ -44,9 +44,9 @@ dotnet test AP-Server-Tests --collect "XPlat Code Coverage" --settings AP-Server
 | Story | Automated evidence |
 |---|---|
 | 1. Customer enquiries | `ChatServiceTests.Enquiry_*`: AI answer, history sent on follow-ups, fallback when the AI is down. `ApiTests.Chat_ConversationIsPersistedAndReadable`. `RuleBasedClassifierTests`, `ClassificationServiceTests` |
-| 2. Technical support | `ChatServiceTests.TechnicalSupport_*`: ticket raised and escalated, no duplicates, out-of-scope refused. `ApiTests.Chat_TechnicalSupport_AppearsInTheStaffTicketQueue`, `ApiTests.Ticket_StaffWorkflow_*`. `StaffHubTests`: ticket pushed to staff in real time |
-| 3. Service issues | `ChatServiceTests.ServiceIssue_*`: steps plus confirmation prompt, "No" raises a ticket, "Yes" resolves, missing details are asked for, and a ticket is raised straight away if the AI is down. `TroubleshootingOutcomeDetectorTests` |
-| 4. Complaints | `ChatServiceTests.Complaint_*`: details collected first, CMP reference, severity and escalation, no duplicates. `TicketServiceTests` (severity and category rules). `ComplaintDetailsTests`. `ApiTests.Chat_Complaint_IsListedAsAComplaintTicket` |
+| 2. Technical support | `ChatServiceTests.TechnicalSupport_*`: ticket raised and escalated, no duplicates, out-of-scope refused. `ApiTests.Chat_TechnicalSupport_AppearsInTheStaffTicketQueue`, `ApiTests.Ticket_StaffWorkflow_*`. `StaffHubTests`: ticket pushed to staff in real time. Client `TicketsPanel.test.tsx`: live arrival, filters, escalation, transcript |
+| 3. Service issues | Client `ChatView.test.tsx`: Yes/No quick replies. `ChatServiceTests.ServiceIssue_*`: steps plus confirmation prompt, "No" raises a ticket, "Yes" resolves, missing details are asked for, and a ticket is raised straight away if the AI is down. `TroubleshootingOutcomeDetectorTests` |
+| 4. Complaints | `ChatServiceTests.Complaint_*`: details collected first (even when they mention a fault), CMP reference, severity and escalation, session ended. `TicketServiceTests` (severity and category rules). `ComplaintDetailsTests`. `ApiTests.Chat_Complaint_IsListedAsAComplaintTicket`, `ApiTests.Chat_AfterAComplaintIsLogged_TheConversationIsClosed`. Client `ChatView.test.tsx`: notice, session end |
 | 5. IoC | `ClassificationServiceTests` (fake `IAIService` injected). `TelegroupApiFactory` swaps the AI provider through DI. `ConcurrencyLimitedAIServiceTests` (decorator) |
 | 6. Concurrency | `ConcurrencyTests` (simultaneous messages, many customers). `KeyedLockTests`. `ConcurrencyLimitedAIServiceTests`. `RateLimitingTests`. [Load test](load-test.md) |
 | 7. Security and quality | `ApiTests` (400 / 404 / 409 as ProblemDetails with a `traceId`, security headers, unknown routes). `ChatServiceTests.AnotherCustomersConversation_IsReportedAsNotFound`. `DatabaseSetupTests`. CI on every push |

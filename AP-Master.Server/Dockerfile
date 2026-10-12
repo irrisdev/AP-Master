@@ -1,6 +1,8 @@
 # Multi-stage build: the React client and the ASP.NET Core API are built separately,
 # then the client's static files are served by the API from a small runtime image.
 #
+# Easiest: `docker compose up -d --build` from the repository root (see docker-compose.yml).
+# Or by hand:
 #   docker build -f AP-Master.Server/Dockerfile -t telegroup-chatbot .
 #   docker run -p 8080:8080 -v telegroup-data:/app/data -e AI__ApiKey=... telegroup-chatbot
 #
@@ -31,6 +33,10 @@ WORKDIR /src/ap-master.client
 COPY ["ap-master.client/package.json", "ap-master.client/package-lock.json", "./"]
 RUN npm ci
 COPY ap-master.client/ ./
+# The client chooses mock or live API when it is built, not at run time. A production build
+# never reads .env.development, so without this the image would ship the offline demo client.
+ARG VITE_API_MODE=live
+ENV VITE_API_MODE=$VITE_API_MODE
 RUN npm run build
 
 # ---- server ---------------------------------------------------------------------------------

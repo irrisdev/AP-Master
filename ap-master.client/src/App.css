@@ -162,3 +162,9 @@
         padding: var(--space-4) var(--space-3);
     }
 }
+
+/* The dashboard's tables need room; the chat reads better narrower. */
+.app-header__inner.app-wide,
+.app-main.app-wide {
+    max-width: 1440px;
+}

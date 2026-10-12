@@ -56,6 +56,7 @@ public class TicketServiceTests : IDisposable
     [InlineData("I was charged twice", "Billing")]
     [InlineData("My broadband keeps dropping", "Service")]
     [InlineData("The technician never turned up", "Technical Support")]
+    [InlineData("The engineer missed two appointments", "Technical Support")]
     [InlineData("Your staff were unhelpful", "General")]
     public async Task CreateTicket_Complaint_IsCategorised(string description, string category)
     {

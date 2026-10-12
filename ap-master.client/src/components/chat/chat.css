@@ -177,7 +177,7 @@
 
 .message-list__empty {
     margin: auto;
-    max-width: 46ch;
+    max-width: 64ch;
     text-align: center;
     color: var(--text-muted);
     font-size: var(--text-sm);
@@ -346,4 +346,64 @@
     .bubble {
         max-width: 100%;
     }
+}
+
+/* ---------------------------------------------------------------- starters */
+
+/* Example openers in the empty chat: one per thing the assistant can do. */
+.starters {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+}
+
+.starter {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    font-style: normal;
+    cursor: pointer;
+    transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.starter:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+/* ------------------------------------------------------------ quick replies */
+
+.quick-replies {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+/* -------------------------------------------------------------------- ended */
+
+/* Takes the composer's place once a complaint has closed the conversation. */
+.chat__ended {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--success);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+}
+
+.chat__ended p {
+    margin-top: var(--space-1);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+    max-width: 56ch;
 }

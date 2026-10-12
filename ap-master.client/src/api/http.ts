@@ -1,16 +1,16 @@
 import { ApiError } from './contract.ts';
 import type { ApiClient } from './contract.ts';
+import { TicketFeed } from './ticketFeed.ts';
 import type {
     ChatRequest,
     ChatResponse,
-    ComplaintDto,
-    ComplaintFilter,
     ConversationDetail,
     ConversationSummary,
     CreateCustomerRequest,
     CustomerDto,
     MessageDto,
     TicketDto,
+    TicketEventHandlers,
     TicketFilter,
     TicketStatus,
 } from './types.ts';
@@ -55,6 +55,23 @@ function asUtc(timestamp: string): string {
     return /(?:Z|[+-]\d{2}:?\d{2})$/.test(timestamp) ? timestamp : `${timestamp}Z`;
 }
 
+/** A ticket's timestamps marked as UTC; see asUtc. */
+function normaliseTicket(ticket: TicketDto): TicketDto {
+    return { ...ticket, createdAt: asUtc(ticket.createdAt), updatedAt: asUtc(ticket.updatedAt) };
+}
+
+/**
+ * Retry-After is either a number of seconds or an HTTP date. The server sends seconds,
+ * but a proxy in front of it could send either.
+ */
+function parseRetryAfter(value: string | null): number | undefined {
+    if (!value) return undefined;
+    const seconds = Number(value);
+    if (Number.isFinite(seconds)) return Math.max(0, Math.ceil(seconds));
+    const date = Date.parse(value);
+    return Number.isNaN(date) ? undefined : Math.max(0, Math.ceil((date - Date.now()) / 1000));
+}
+
 /** "?a=1&b=2", or "" when nothing is set. */
 function suffix(query: URLSearchParams): string {
     return query.size > 0 ? `?${query.toString()}` : '';
@@ -62,13 +79,16 @@ function suffix(query: URLSearchParams): string {
 
 /**
  * Real implementation. Talks to the ASP.NET server over relative URLs, which the
- * Vite dev proxy forwards to the backend (see the `^/api` rule in vite.config.ts).
+ * Vite dev proxy forwards to the backend (see the `^/api` and `^/hubs` rules in
+ * vite.config.ts). In production the API serves the client, so they are same-origin.
  */
 export class HttpApiClient implements ApiClient {
     private readonly baseUrl: string;
+    private readonly ticketFeed: TicketFeed;
 
-    constructor(baseUrl = '/api') {
+    constructor(baseUrl = '/api', staffHubUrl = '/hubs/staff') {
         this.baseUrl = baseUrl.replace(/\/$/, '');
+        this.ticketFeed = new TicketFeed(staffHubUrl, normaliseTicket);
     }
 
     private async request<T>(
@@ -106,6 +126,7 @@ export class HttpApiClient implements ApiClient {
                 response.status,
                 problem.detail ?? describeErrors(problem.errors),
                 problem.traceId,
+                parseRetryAfter(response.headers.get('Retry-After')),
             );
         }
 
@@ -179,54 +200,49 @@ export class HttpApiClient implements ApiClient {
         };
     }
 
-    listTickets(filter?: TicketFilter, signal?: AbortSignal): Promise<TicketDto[]> {
+    async listTickets(filter?: TicketFilter, signal?: AbortSignal): Promise<TicketDto[]> {
         const query = new URLSearchParams();
+        // `!== undefined`, not truthiness: status 0 and escalated=false are real filters.
         if (filter?.status !== undefined) query.set('status', String(filter.status));
+        if (filter?.type !== undefined) query.set('type', String(filter.type));
+        if (filter?.severity !== undefined) query.set('severity', String(filter.severity));
+        if (filter?.escalated !== undefined) query.set('escalated', String(filter.escalated));
         if (filter?.customerId !== undefined) query.set('customerId', String(filter.customerId));
-        return this.request<TicketDto[]>(`/tickets${suffix(query)}`, { method: 'GET' }, signal);
+        const tickets = await this.request<TicketDto[]>(`/tickets${suffix(query)}`, { method: 'GET' }, signal);
+        return tickets.map(normaliseTicket);
     }
 
-    getTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
-        return this.request<TicketDto>(`/tickets/${id}`, { method: 'GET' }, signal);
+    async getTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
+        return normaliseTicket(await this.request<TicketDto>(`/tickets/${id}`, { method: 'GET' }, signal));
     }
 
-    updateTicketStatus(
+    async updateTicketStatus(
         id: number,
         status: TicketStatus,
         signal?: AbortSignal,
     ): Promise<TicketDto> {
-        return this.request<TicketDto>(
-            `/tickets/${id}/status`,
-            { method: 'PUT', body: JSON.stringify({ status }) },
-            signal,
+        return normaliseTicket(
+            await this.request<TicketDto>(
+                `/tickets/${id}/status`,
+                { method: 'PUT', body: JSON.stringify({ status }) },
+                signal,
+            ),
         );
     }
 
-    closeTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
-        return this.request<TicketDto>(`/tickets/${id}/close`, { method: 'POST' }, signal);
-    }
-
-    listComplaints(filter?: ComplaintFilter, signal?: AbortSignal): Promise<ComplaintDto[]> {
-        const query = new URLSearchParams();
-        if (filter?.status !== undefined) query.set('status', String(filter.status));
-        if (filter?.severity !== undefined) query.set('severity', String(filter.severity));
-        if (filter?.escalated !== undefined) query.set('escalated', String(filter.escalated));
-        return this.request<ComplaintDto[]>(
-            `/complaints${suffix(query)}`,
-            { method: 'GET' },
-            signal,
+    async closeTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
+        return normaliseTicket(
+            await this.request<TicketDto>(`/tickets/${id}/close`, { method: 'POST' }, signal),
         );
     }
 
-    getComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
-        return this.request<ComplaintDto>(`/complaints/${id}`, { method: 'GET' }, signal);
+    async escalateTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
+        return normaliseTicket(
+            await this.request<TicketDto>(`/tickets/${id}/escalate`, { method: 'POST' }, signal),
+        );
     }
 
-    escalateComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
-        return this.request<ComplaintDto>(
-            `/complaints/${id}/escalate`,
-            { method: 'POST' },
-            signal,
-        );
+    subscribeToTickets(handlers: TicketEventHandlers): () => void {
+        return this.ticketFeed.subscribe(handlers);
     }
 }

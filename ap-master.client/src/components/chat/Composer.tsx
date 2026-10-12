@@ -10,11 +10,16 @@ export interface ComposerProps {
     onSend: () => void;
     /** True while the previous message is still in flight. */
     sending?: boolean;
+    /**
+     * Why sending is paused, e.g. "You can send again in 4 seconds". The draft can
+     * still be edited, so nothing typed is lost while waiting.
+     */
+    blockedReason?: string;
 }
 
-export function Composer({ value, onChange, onSend, sending = false }: ComposerProps) {
+export function Composer({ value, onChange, onSend, sending = false, blockedReason }: ComposerProps) {
     const error = validateMessage(value);
-    const canSend = canSendMessage(value) && !sending;
+    const canSend = canSendMessage(value) && !sending && !blockedReason;
 
     function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
         // Enter sends; Shift+Enter is a newline. Ignore the Enter that closes an
@@ -39,7 +44,7 @@ export function Composer({ value, onChange, onSend, sending = false }: ComposerP
                 value={value}
                 rows={2}
                 error={error}
-                hint={`${value.length} / ${limits.chatMessageMax}`}
+                hint={blockedReason ?? `${value.length} / ${limits.chatMessageMax}`}
                 onChange={(event) => onChange(event.target.value)}
                 onKeyDown={handleKeyDown}
             />
