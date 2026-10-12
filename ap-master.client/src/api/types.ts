@@ -36,23 +36,18 @@ export const TicketStatus = {
     InProgress: 1,
     Resolved: 2,
     Closed: 3,
+    /** The starting status of a complaint; support tickets start at AwaitingTechnician. */
+    Open: 4,
 } as const;
 export type TicketStatus = (typeof TicketStatus)[keyof typeof TicketStatus];
 
-export const ComplaintStatus = {
-    Open: 0,
-    InProgress: 1,
-    Resolved: 2,
-    Closed: 3,
-} as const;
-export type ComplaintStatus = (typeof ComplaintStatus)[keyof typeof ComplaintStatus];
-
-export const ComplaintSeverity = {
+/** Only complaint tickets carry a severity. */
+export const TicketSeverity = {
     Low: 0,
     Medium: 1,
     High: 2,
 } as const;
-export type ComplaintSeverity = (typeof ComplaintSeverity)[keyof typeof ComplaintSeverity];
+export type TicketSeverity = (typeof TicketSeverity)[keyof typeof TicketSeverity];
 
 /* ----------------------------------------------------- display labels */
 
@@ -75,19 +70,13 @@ export const ticketStatusLabel: Record<TicketStatus, string> = {
     [TicketStatus.InProgress]: 'In progress',
     [TicketStatus.Resolved]: 'Resolved',
     [TicketStatus.Closed]: 'Closed',
+    [TicketStatus.Open]: 'Open',
 };
 
-export const complaintStatusLabel: Record<ComplaintStatus, string> = {
-    [ComplaintStatus.Open]: 'Open',
-    [ComplaintStatus.InProgress]: 'In progress',
-    [ComplaintStatus.Resolved]: 'Resolved',
-    [ComplaintStatus.Closed]: 'Closed',
-};
-
-export const complaintSeverityLabel: Record<ComplaintSeverity, string> = {
-    [ComplaintSeverity.Low]: 'Low',
-    [ComplaintSeverity.Medium]: 'Medium',
-    [ComplaintSeverity.High]: 'High',
+export const ticketSeverityLabel: Record<TicketSeverity, string> = {
+    [TicketSeverity.Low]: 'Low',
+    [TicketSeverity.Medium]: 'Medium',
+    [TicketSeverity.High]: 'High',
 };
 
 /* --------------------------------------------- validation limits (mirrors) */
@@ -116,11 +105,16 @@ export interface ChatResponse {
     requestType: RequestType;
     message: string;
     escalated: boolean;
+    /**
+     * Set whenever the reply relates to a ticket: a newly raised support ticket or
+     * complaint, or a follow-up on one that is still open.
+     */
     ticketId?: number | null;
 }
 
-/* There is no POST /api/complaints: a complaint is only ever raised by the chat
-   flow, which classifies the message and derives severity and category itself. */
+/* There is no POST /api/tickets: a ticket of any type, complaints included, is only
+   ever raised by the chat flow, which classifies the message and, for a complaint,
+   derives severity and category itself. */
 
 /** Mirrors DTOs/CustomerDtos.cs — CustomerResponse */
 export interface CustomerDto {
@@ -169,40 +163,35 @@ export interface ConversationDetail extends ConversationSummary {
     messages: MessageDto[];
 }
 
-/** Mirrors DTOs/TicketDtos.cs — TicketResponse */
+/** Mirrors DTOs/TicketDtos.cs — TicketResponse. A complaint is a ticket with `type` Complaint. */
 export interface TicketDto {
     id: number;
-    /** Customer-facing reference derived from the id, e.g. TKT-000042. */
+    /**
+     * Stored customer-facing reference: TKT- or CMP- plus 8 hex characters, e.g.
+     * CMP-6D4A1140. Tickets raised before references were stored keep TKT-000042.
+     */
     reference: string;
+    /** TechnicalSupport, ServiceIssue or Complaint; a CustomerEnquiry never has a ticket. */
+    type: RequestType;
     customerId: number;
     conversationId?: number | null;
     description: string;
     status: TicketStatus;
-}
-
-/** Mirrors DTOs/ComplaintDtos.cs — ComplaintResponse */
-export interface ComplaintDto {
-    id: number;
-    /** e.g. CMP-6D4A1140 */
-    reference: string;
-    customerId: number;
-    conversationId?: number | null;
-    description: string;
-    category: string;
-    severity: ComplaintSeverity;
-    status: ComplaintStatus;
+    /** Complaints only. */
+    category: string | null;
+    /** Complaints only. */
+    severity: TicketSeverity | null;
+    /** Passed to senior staff: automatic for a High-severity complaint, or by an agent. */
     escalated: boolean;
+    createdAt: string;
+    updatedAt: string;
 }
 
 /** Query parameters accepted by GET /api/tickets. */
 export interface TicketFilter {
     status?: TicketStatus;
-    customerId?: number;
-}
-
-/** Query parameters accepted by GET /api/complaints. */
-export interface ComplaintFilter {
-    status?: ComplaintStatus;
-    severity?: ComplaintSeverity;
+    type?: RequestType;
+    severity?: TicketSeverity;
     escalated?: boolean;
+    customerId?: number;
 }

@@ -3,8 +3,6 @@ import type { ApiClient } from './contract.ts';
 import type {
     ChatRequest,
     ChatResponse,
-    ComplaintDto,
-    ComplaintFilter,
     ConversationDetail,
     ConversationSummary,
     CreateCustomerRequest,
@@ -58,6 +56,11 @@ function asUtc(timestamp: string): string {
 /** "?a=1&b=2", or "" when nothing is set. */
 function suffix(query: URLSearchParams): string {
     return query.size > 0 ? `?${query.toString()}` : '';
+}
+
+/** A ticket's timestamps have the same missing-offset problem as a conversation's. */
+function ticketAsUtc(ticket: TicketDto): TicketDto {
+    return { ...ticket, createdAt: asUtc(ticket.createdAt), updatedAt: asUtc(ticket.updatedAt) };
 }
 
 /**
@@ -179,54 +182,52 @@ export class HttpApiClient implements ApiClient {
         };
     }
 
-    listTickets(filter?: TicketFilter, signal?: AbortSignal): Promise<TicketDto[]> {
+    async listTickets(filter?: TicketFilter, signal?: AbortSignal): Promise<TicketDto[]> {
+        // `!== undefined` rather than truthiness: status 0, type 0 and escalated=false are
+        // all real filters.
         const query = new URLSearchParams();
         if (filter?.status !== undefined) query.set('status', String(filter.status));
+        if (filter?.type !== undefined) query.set('type', String(filter.type));
+        if (filter?.severity !== undefined) query.set('severity', String(filter.severity));
+        if (filter?.escalated !== undefined) query.set('escalated', String(filter.escalated));
         if (filter?.customerId !== undefined) query.set('customerId', String(filter.customerId));
-        return this.request<TicketDto[]>(`/tickets${suffix(query)}`, { method: 'GET' }, signal);
+        const tickets = await this.request<TicketDto[]>(
+            `/tickets${suffix(query)}`,
+            { method: 'GET' },
+            signal,
+        );
+        return tickets.map(ticketAsUtc);
     }
 
-    getTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
-        return this.request<TicketDto>(`/tickets/${id}`, { method: 'GET' }, signal);
+    async getTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
+        return ticketAsUtc(
+            await this.request<TicketDto>(`/tickets/${id}`, { method: 'GET' }, signal),
+        );
     }
 
-    updateTicketStatus(
+    async updateTicketStatus(
         id: number,
         status: TicketStatus,
         signal?: AbortSignal,
     ): Promise<TicketDto> {
-        return this.request<TicketDto>(
-            `/tickets/${id}/status`,
-            { method: 'PUT', body: JSON.stringify({ status }) },
-            signal,
+        return ticketAsUtc(
+            await this.request<TicketDto>(
+                `/tickets/${id}/status`,
+                { method: 'PUT', body: JSON.stringify({ status }) },
+                signal,
+            ),
         );
     }
 
-    closeTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
-        return this.request<TicketDto>(`/tickets/${id}/close`, { method: 'POST' }, signal);
-    }
-
-    listComplaints(filter?: ComplaintFilter, signal?: AbortSignal): Promise<ComplaintDto[]> {
-        const query = new URLSearchParams();
-        if (filter?.status !== undefined) query.set('status', String(filter.status));
-        if (filter?.severity !== undefined) query.set('severity', String(filter.severity));
-        if (filter?.escalated !== undefined) query.set('escalated', String(filter.escalated));
-        return this.request<ComplaintDto[]>(
-            `/complaints${suffix(query)}`,
-            { method: 'GET' },
-            signal,
+    async closeTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
+        return ticketAsUtc(
+            await this.request<TicketDto>(`/tickets/${id}/close`, { method: 'POST' }, signal),
         );
     }
 
-    getComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
-        return this.request<ComplaintDto>(`/complaints/${id}`, { method: 'GET' }, signal);
-    }
-
-    escalateComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
-        return this.request<ComplaintDto>(
-            `/complaints/${id}/escalate`,
-            { method: 'POST' },
-            signal,
+    async escalateTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
+        return ticketAsUtc(
+            await this.request<TicketDto>(`/tickets/${id}/escalate`, { method: 'POST' }, signal),
         );
     }
 }

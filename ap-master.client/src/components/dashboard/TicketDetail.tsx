@@ -1,13 +1,20 @@
 import { useCallback, useState } from 'react';
-import { TicketStatus, isAbort, ticketStatusLabel, useApi } from '../../api/index.ts';
+import {
+    RequestType,
+    TicketStatus,
+    isAbort,
+    ticketStatusLabel,
+    useApi,
+} from '../../api/index.ts';
 import type { ApiError, TicketDto } from '../../api/index.ts';
 import { useAbortSignal } from '../../hooks/useAbortSignal.ts';
 import { useAsync } from '../../hooks/useAsync.ts';
 import { toApiError } from '../../lib/errors.ts';
+import { Badge } from '../ui/Badge.tsx';
 import { Button } from '../ui/Button.tsx';
 import { ErrorBanner } from '../ui/ErrorBanner.tsx';
 import { Skeleton } from '../ui/Skeleton.tsx';
-import { TicketStatusBadge } from './StatusBadges.tsx';
+import { RequestTypeBadge, TicketSeverityBadge, TicketStatusBadge } from './StatusBadges.tsx';
 
 export interface TicketDetailProps {
     ticketId: number;
@@ -16,12 +23,16 @@ export interface TicketDetailProps {
     onPatched: (ticket: TicketDto) => void;
 }
 
-/** Closing has its own endpoint and is irreversible, so it is not one of these. */
-const openStatuses = [
-    TicketStatus.AwaitingTechnician,
-    TicketStatus.InProgress,
-    TicketStatus.Resolved,
-];
+/**
+ * The statuses an agent can move a ticket between. A complaint starts Open and a support
+ * ticket starts AwaitingTechnician, so each offers its own starting status rather than
+ * the other's. Closing has its own endpoint and is irreversible, so it is not one of these.
+ */
+function statusesFor(ticket: TicketDto): TicketStatus[] {
+    const start =
+        ticket.type === RequestType.Complaint ? TicketStatus.Open : TicketStatus.AwaitingTechnician;
+    return [start, TicketStatus.InProgress, TicketStatus.Resolved];
+}
 
 /**
  * A status change is applied locally first and rolled back if the server
@@ -42,6 +53,7 @@ export function TicketDetail({ ticketId, onClose, onPatched }: TicketDetailProps
 
     const [saving, setSaving] = useState(false);
     const [updateError, setUpdateError] = useState<ApiError | null>(null);
+    const [escalating, setEscalating] = useState(false);
 
     /**
      * Shows `next` immediately and rolls back if the server refuses — closing a
@@ -85,6 +97,25 @@ export function TicketDetail({ ticketId, onClose, onPatched }: TicketDetailProps
         );
     }
 
+    /**
+     * Escalation is one-way and promises the customer a senior response, so unlike a
+     * status change it is not applied optimistically: wait for the server to agree.
+     */
+    async function escalate(current: TicketDto) {
+        setEscalating(true);
+        setUpdateError(null);
+
+        try {
+            const updated = await api.escalateTicket(current.id, signalFor());
+            setData(updated);
+            onPatched(updated);
+        } catch (cause) {
+            if (isAbort(cause)) return;
+            setUpdateError(toApiError(cause));
+        }
+        setEscalating(false);
+    }
+
     return (
         <section className="panel detail" aria-label={`Ticket ${ticketId}`}>
             <header className="detail__header">
@@ -106,6 +137,12 @@ export function TicketDetail({ ticketId, onClose, onPatched }: TicketDetailProps
                             <dd>{ticket.reference}</dd>
                         </div>
                         <div>
+                            <dt>Type</dt>
+                            <dd>
+                                <RequestTypeBadge requestType={ticket.type} />
+                            </dd>
+                        </div>
+                        <div>
                             <dt>Customer</dt>
                             <dd>#{ticket.customerId}</dd>
                         </div>
@@ -121,6 +158,30 @@ export function TicketDetail({ ticketId, onClose, onPatched }: TicketDetailProps
                                 <TicketStatusBadge status={ticket.status} />
                             </dd>
                         </div>
+                        {ticket.category != null ? (
+                            <div>
+                                <dt>Category</dt>
+                                <dd>{ticket.category}</dd>
+                            </div>
+                        ) : null}
+                        {ticket.severity != null ? (
+                            <div>
+                                <dt>Severity</dt>
+                                <dd>
+                                    <TicketSeverityBadge severity={ticket.severity} />
+                                </dd>
+                            </div>
+                        ) : null}
+                        <div>
+                            <dt>Escalation</dt>
+                            <dd>
+                                {ticket.escalated ? (
+                                    <Badge tone="danger">Escalated</Badge>
+                                ) : (
+                                    'Not escalated'
+                                )}
+                            </dd>
+                        </div>
                     </dl>
 
                     <p className="detail__description">{ticket.description}</p>
@@ -133,7 +194,7 @@ export function TicketDetail({ ticketId, onClose, onPatched }: TicketDetailProps
                         </p>
                     ) : (
                         <div className="detail__actions" role="group" aria-label="Change status">
-                            {openStatuses.map((status) => (
+                            {statusesFor(ticket).map((status) => (
                                 <Button
                                     key={status}
                                     size="sm"
@@ -151,6 +212,19 @@ export function TicketDetail({ ticketId, onClose, onPatched }: TicketDetailProps
                                 onClick={() => void closeTicket(ticket)}
                             >
                                 Close ticket
+                            </Button>
+                        </div>
+                    )}
+
+                    {ticket.escalated || closed ? null : (
+                        <div className="detail__actions">
+                            <Button
+                                size="sm"
+                                variant="secondary"
+                                disabled={escalating}
+                                onClick={() => void escalate(ticket)}
+                            >
+                                Escalate to senior staff
                             </Button>
                         </div>
                     )}

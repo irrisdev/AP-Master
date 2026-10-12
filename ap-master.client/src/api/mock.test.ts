@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MockApiClient } from './mock.ts';
-import { ComplaintSeverity, ConversationStatus, RequestType } from './types.ts';
+import { ConversationStatus, RequestType, TicketSeverity, TicketStatus } from './types.ts';
 
 /**
  * These pin the mock to what the real POST /api/chat was observed to do, so
@@ -47,20 +47,71 @@ describe('MockApiClient mirrors the server contract', () => {
         const high = await api.sendMessage({ customerId: 1, message: 'I am unhappy and will go to court' });
         expect(high.escalated).toBe(true);
 
-        const complaints = await api.listComplaints();
+        const complaints = await api.listTickets({ type: RequestType.Complaint, customerId: 1 });
         const severities = complaints.map((c) => c.severity);
-        expect(severities).toContain(ComplaintSeverity.Low);
-        expect(severities).toContain(ComplaintSeverity.High);
+        expect(severities).toContain(TicketSeverity.Low);
+        expect(severities).toContain(TicketSeverity.High);
     });
 
-    it('derives the complaint category the way ComplaintService does', async () => {
+    it('records a complaint as a ticket and returns its id', async () => {
         const api = client();
-        await api.sendMessage({ customerId: 1, message: 'I am disappointed I was charged twice' });
+        const response = await api.sendMessage({
+            customerId: 1,
+            message: 'I am disappointed I was charged twice',
+        });
 
-        const [latest] = await api.listComplaints();
-        expect(latest.category).toBe('Billing');
-        expect(latest.severity).toBe(ComplaintSeverity.Medium);
-        expect(latest.reference).toMatch(/^CMP-[0-9A-F]{8}$/);
+        expect(response.ticketId).not.toBeNull();
+        const complaint = await api.getTicket(response.ticketId!);
+        expect(complaint).toMatchObject({
+            type: RequestType.Complaint,
+            status: TicketStatus.Open,
+            // Derived the way TicketService does.
+            category: 'Billing',
+            severity: TicketSeverity.Medium,
+            escalated: false,
+        });
+        expect(complaint.reference).toMatch(/^CMP-[0-9A-F]{8}$/);
+    });
+
+    it('gives a support ticket no severity or category, and starts it awaiting a technician', async () => {
+        const api = client();
+        const response = await api.sendMessage({ customerId: 1, message: 'My router will not connect' });
+
+        const ticket = await api.getTicket(response.ticketId!);
+        expect(ticket).toMatchObject({
+            type: RequestType.TechnicalSupport,
+            status: TicketStatus.AwaitingTechnician,
+            category: null,
+            severity: null,
+            escalated: false,
+        });
+        expect(ticket.reference).toMatch(/^TKT-[0-9A-F]{8}$/);
+    });
+
+    it('filters tickets by type, severity and escalation', async () => {
+        const api = client();
+
+        const complaints = await api.listTickets({ type: RequestType.Complaint });
+        expect(complaints.length).toBeGreaterThan(0);
+        expect(complaints.every((t) => t.type === RequestType.Complaint)).toBe(true);
+
+        const high = await api.listTickets({ severity: TicketSeverity.High });
+        expect(high.every((t) => t.severity === TicketSeverity.High)).toBe(true);
+
+        // false is a filter in its own right, not "no filter".
+        const notEscalated = await api.listTickets({ escalated: false });
+        expect(notEscalated.length).toBeGreaterThan(0);
+        expect(notEscalated.every((t) => !t.escalated)).toBe(true);
+    });
+
+    it('escalates any ticket once, and refuses a second time', async () => {
+        const api = client();
+        const response = await api.sendMessage({ customerId: 1, message: 'My router will not connect' });
+
+        const escalated = await api.escalateTicket(response.ticketId!);
+        expect(escalated.escalated).toBe(true);
+
+        await expect(api.escalateTicket(response.ticketId!)).rejects.toMatchObject({ status: 409 });
     });
 
     it('stores senders as "Customer" and "AI"', async () => {
@@ -122,6 +173,7 @@ describe('MockApiClient mirrors the server contract', () => {
         expect(reply.escalated).toBe(true);
         // "still not working" is an answer, not a fresh service-issue enquiry.
         expect(reply.requestType).toBe(RequestType.ServiceIssue);
+        expect((await api.getTicket(reply.ticketId!)).type).toBe(RequestType.ServiceIssue);
 
         const conversation = await api.getConversation(issue.conversationId);
         expect(conversation.status).toBe(ConversationStatus.Escalated);

@@ -1,8 +1,6 @@
 import type {
     ChatRequest,
     ChatResponse,
-    ComplaintDto,
-    ComplaintFilter,
     ConversationDetail,
     ConversationSummary,
     CreateCustomerRequest,
@@ -37,11 +35,11 @@ export interface ApiClient {
     updateTicketStatus(id: number, status: TicketStatus, signal?: AbortSignal): Promise<TicketDto>;
     /** Closing is its own endpoint: a closed ticket cannot be reopened. */
     closeTicket(id: number, signal?: AbortSignal): Promise<TicketDto>;
-
-    listComplaints(filter?: ComplaintFilter, signal?: AbortSignal): Promise<ComplaintDto[]>;
-    getComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto>;
-    /** Manual escalation by an agent. Complaints are only ever created by the chat flow. */
-    escalateComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto>;
+    /**
+     * Manual escalation by an agent, for a ticket of any type. One-way: a second
+     * escalation is a 409. Tickets themselves are only ever created by the chat flow.
+     */
+    escalateTicket(id: number, signal?: AbortSignal): Promise<TicketDto>;
 }
 
 /**
