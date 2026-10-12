@@ -1,0 +1,93 @@
+using AP_Master.Server.DTOs.Chat;
+using AP_Master.Server.Enums;
+using AP_Master.Server.Services;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace AP_Server_Tests;
+
+public class ChatServiceTests : IClassFixture<TestFixture>
+{
+    private readonly TestFixture _fixture;
+
+    public ChatServiceTests(TestFixture fixture)
+    {
+        _fixture = fixture;
+    }
+
+    [Fact]
+    public async Task ServiceIssue_Unresolved_CreatesTicketAndEscalates()
+    {
+        // Arrange
+        var customerService = new CustomerService(
+            _fixture.DbContext,
+            NullLogger<CustomerService>.Instance);
+
+        var conversationService = new ConversationService(
+            _fixture.DbContext,
+            customerService,
+            NullLogger<ConversationService>.Instance);
+
+        var messageService = new MessageService(
+            _fixture.DbContext,
+            NullLogger<MessageService>.Instance);
+
+        var ticketService = new TicketService(
+            _fixture.DbContext,
+            NullLogger<TicketService>.Instance);
+
+        // Create a customer for this test
+        var customer = await customerService.CreateAsync(
+            new AP_Master.Server.DTOs.CreateCustomerRequest
+            {
+                Name = "Service Issue Test",
+                Email = $"service-{Guid.NewGuid()}@test.com"
+            });
+
+        // Start a ServiceIssue conversation
+        var conversation = await conversationService.StartAsync(
+            customer.Id,
+            RequestType.ServiceIssue);
+
+        // Put the conversation into troubleshooting mode
+        await conversationService.UpdateStateAsync(
+            conversation,
+            ConversationStatus.Troubleshooting,
+            RequestType.ServiceIssue);
+
+        // Add the original service problem so it can be included
+        // in the eventual support ticket.
+        await messageService.AddCustomerMessageAsync(
+            conversation.Id,
+            "My internet is really slow");
+
+        // Simulate the customer saying the troubleshooting failed.
+        await messageService.AddCustomerMessageAsync(
+            conversation.Id,
+            "No, it is still not working");
+
+        // Act
+        var ticket = await ticketService.CreateTicketAsync(
+            customer.Id,
+            conversation.Id,
+            "My internet is really slow. No, it is still not working.");
+
+        await conversationService.UpdateStateAsync(
+            conversation,
+            ConversationStatus.Escalated,
+            RequestType.ServiceIssue);
+
+        // Assert
+        Assert.True(ticket.Id > 0);
+        Assert.Equal(customer.Id, ticket.CustomerId);
+        Assert.Equal(conversation.Id, ticket.ConversationId);
+        Assert.Equal(TicketStatus.AwaitingTechnician, ticket.Status);
+
+        Assert.Equal(
+            ConversationStatus.Escalated,
+            conversation.Status);
+
+        Assert.Equal(
+            RequestType.ServiceIssue,
+            conversation.RequestType);
+    }
+}

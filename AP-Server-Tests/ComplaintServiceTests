@@ -1,0 +1,50 @@
+using AP_Master.Server.Services;
+using Microsoft.EntityFrameworkCore;
+
+namespace AP_Server_Tests;
+
+public class ComplaintServiceTests : IClassFixture<TestFixture>
+{
+    private readonly TestFixture _fixture;
+
+    public ComplaintServiceTests(TestFixture fixture)
+    {
+        _fixture = fixture;
+    }
+
+    [Fact]
+    public async Task CreateComplaintAsync_ValidComplaint_SavesComplaintAndGeneratesReference()
+    {
+        // Arrange
+        var customerService = new CustomerService(
+            _fixture.DbContext,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<CustomerService>.Instance);
+
+        var customer = await customerService.CreateAsync(
+            new AP_Master.Server.DTOs.CreateCustomerRequest
+            {
+                Name = "Complaint Test User",
+                Email = $"complaint-{Guid.NewGuid()}@test.com"
+            });
+
+        var complaintService = new ComplaintService(_fixture.DbContext);
+
+        // Act
+        var complaint = await complaintService.CreateComplaintAsync(
+            customer.Id,
+            null,
+            "I want to make a formal complaint about my bill.");
+
+        // Assert - a reference number was generated
+        Assert.False(string.IsNullOrWhiteSpace(complaint.Reference));
+        Assert.StartsWith("C-", complaint.Reference);
+
+        // Assert - the complaint was actually stored in the database
+        var savedComplaint = await _fixture.DbContext.Complaints
+            .FirstOrDefaultAsync(c => c.Id == complaint.Id);
+
+        Assert.NotNull(savedComplaint);
+        Assert.Equal(customer.Id, savedComplaint.CustomerId);
+        Assert.Equal(complaint.Reference, savedComplaint.Reference);
+    }
+}
