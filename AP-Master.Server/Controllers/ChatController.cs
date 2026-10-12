@@ -18,7 +18,7 @@ public class ChatController : ControllerBase
 
     /// <summary>
     /// Sends a customer message and returns the assistant's reply. Omit ConversationId to start a new conversation.
-    /// Depending on the request, this may create a support ticket or log a complaint.
+    /// Depending on the request, this may raise a ticket (a support request or a complaint); its ID is returned as TicketId.
     /// </summary>
     /// <response code="200">Reply generated.</response>
     /// <response code="400">Message empty or too long.</response>

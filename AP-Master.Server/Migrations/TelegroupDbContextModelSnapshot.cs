@@ -17,59 +17,6 @@ namespace AP_Master.Server.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
 
-            modelBuilder.Entity("AP_Master.Server.Models.Complaint", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Category")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("ConversationId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("CustomerId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("Escalated")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Reference")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Severity")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ConversationId");
-
-                    b.HasIndex("CustomerId");
-
-                    b.HasIndex("Reference")
-                        .IsUnique();
-
-                    b.ToTable("Complaints");
-                });
-
             modelBuilder.Entity("AP_Master.Server.Models.Conversation", b =>
                 {
                     b.Property<int>("Id")
@@ -163,6 +110,9 @@ namespace AP_Master.Server.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Category")
+                        .HasColumnType("TEXT");
+
                     b.Property<int?>("ConversationId")
                         .HasColumnType("INTEGER");
 
@@ -176,7 +126,21 @@ namespace AP_Master.Server.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("Escalated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Severity")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Type")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
@@ -189,25 +153,10 @@ namespace AP_Master.Server.Migrations
 
                     b.HasIndex("CustomerId");
 
+                    b.HasIndex("Reference")
+                        .IsUnique();
+
                     b.ToTable("SupportTickets");
-                });
-
-            modelBuilder.Entity("AP_Master.Server.Models.Complaint", b =>
-                {
-                    b.HasOne("AP_Master.Server.Models.Conversation", "Conversation")
-                        .WithMany("Complaints")
-                        .HasForeignKey("ConversationId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("AP_Master.Server.Models.Customer", "Customer")
-                        .WithMany("Complaints")
-                        .HasForeignKey("CustomerId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Conversation");
-
-                    b.Navigation("Customer");
                 });
 
             modelBuilder.Entity("AP_Master.Server.Models.Conversation", b =>
@@ -252,8 +201,6 @@ namespace AP_Master.Server.Migrations
 
             modelBuilder.Entity("AP_Master.Server.Models.Conversation", b =>
                 {
-                    b.Navigation("Complaints");
-
                     b.Navigation("Messages");
 
                     b.Navigation("SupportTickets");
@@ -261,8 +208,6 @@ namespace AP_Master.Server.Migrations
 
             modelBuilder.Entity("AP_Master.Server.Models.Customer", b =>
                 {
-                    b.Navigation("Complaints");
-
                     b.Navigation("Conversations");
 
                     b.Navigation("SupportTickets");

@@ -18,7 +18,6 @@ public static class DependencyInjection
         services.AddScoped<IClassificationService, ClassificationService>();
         services.AddScoped<ITicketService, TicketService>();
         services.AddScoped<ICustomerService, CustomerService>();
-        services.AddScoped<IComplaintService, ComplaintService>();
         services.AddScoped<IConversationService, ConversationService>();
         services.AddScoped<IMessageService, MessageService>();
         services.AddSingleton<RuleBasedClassifier>();

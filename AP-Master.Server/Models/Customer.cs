@@ -17,6 +17,4 @@ public class Customer
     public ICollection<Conversation> Conversations { get; set; } = new List<Conversation>();
 
     public ICollection<SupportTicket> SupportTickets { get; set; } = new List<SupportTicket>();
-
-    public ICollection<Complaint> Complaints { get; set; } = new List<Complaint>();
 }
