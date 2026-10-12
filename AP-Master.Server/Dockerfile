@@ -1,37 +1,59 @@
-# See https://aka.ms/customizecontainer to learn how to customize your debug container and how Visual Studio uses this Dockerfile to build your images for faster debugging.
+# Multi-stage build: the React client and the ASP.NET Core API are built separately,
+# then the client's static files are served by the API from a small runtime image.
+#
+#   docker build -f AP-Master.Server/Dockerfile -t telegroup-chatbot .
+#   docker run -p 8080:8080 -v telegroup-data:/app/data -e AI__ApiKey=... telegroup-chatbot
+#
+# Without AI__ApiKey the placeholder AI provider is used, so the image still runs end to end.
 
-# This stage is used when running from VS in fast mode (Default for Debug configuration)
+# ---- runtime base -------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
-USER $APP_UID
 WORKDIR /app
 EXPOSE 8080
-EXPOSE 8081
+ENV ASPNETCORE_HTTP_PORTS=8080 \
+    ConnectionStrings__DefaultConnection="Data Source=/app/data/telegroup.db"
+# The SQLite database lives on a volume the non-root app user can write to.
+RUN mkdir -p /app/data && chown "$APP_UID" /app/data
+VOLUME /app/data
+USER $APP_UID
 
-
-# This stage is used to build the service project
+# ---- SDK with Node, for the client build (vite.config.ts calls `dotnet dev-certs`) ---------
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS with-node
-RUN apt-get update
-RUN apt-get install curl
-RUN curl -sL https://deb.nodesource.com/setup_20.x | bash
-RUN apt-get -y install nodejs
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
+# ---- client ---------------------------------------------------------------------------------
+FROM with-node AS client
+WORKDIR /src/ap-master.client
+COPY ["ap-master.client/package.json", "ap-master.client/package-lock.json", "./"]
+RUN npm ci
+COPY ap-master.client/ ./
+RUN npm run build
 
-FROM with-node AS build
+# ---- server ---------------------------------------------------------------------------------
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 COPY ["AP-Master.Server/AP-Master.Server.csproj", "AP-Master.Server/"]
-COPY ["ap-master.client/ap-master.client.esproj", "ap-master.client/"]
-RUN dotnet restore "./AP-Master.Server/AP-Master.Server.csproj"
-COPY . .
+# The client is built in its own stage above, so drop the reference that makes MSBuild build it again.
+RUN dotnet remove "AP-Master.Server/AP-Master.Server.csproj" reference "../ap-master.client/ap-master.client.esproj" \
+    && dotnet restore "./AP-Master.Server/AP-Master.Server.csproj"
+COPY AP-Master.Server/ AP-Master.Server/
+RUN dotnet remove "AP-Master.Server/AP-Master.Server.csproj" reference "../ap-master.client/ap-master.client.esproj"
+# Put the built client in wwwroot before publishing, so it is part of the static asset manifest.
+COPY --from=client /src/ap-master.client/dist/ AP-Master.Server/wwwroot/
 WORKDIR "/src/AP-Master.Server"
-RUN dotnet build "./AP-Master.Server.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
-# This stage is used to publish the service project to be copied to the final stage
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./AP-Master.Server.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "./AP-Master.Server.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false \
+    # Files keep their host permissions; make sure the non-root app user can read everything.
+    && chmod -R a+rX /app/publish
 
-# This stage is used in production or when running from VS in regular mode (Default when not using the Debug configuration)
+# ---- final ----------------------------------------------------------------------------------
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .

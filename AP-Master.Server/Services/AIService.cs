@@ -38,6 +38,15 @@ public class AIOptions
 
     /// <summary>Character budget for history, so long conversations don't exceed the model's context window.</summary>
     public int MaxHistoryCharacters { get; set; } = 12000;
+
+    /// <summary>Maximum AI calls in flight at once across the whole server (see AIRequestGate).</summary>
+    public int MaxConcurrentRequests { get; set; } = 4;
+
+    /// <summary>How long a request waits for a free AI slot before falling back to its non-AI reply.</summary>
+    public int QueueTimeoutSeconds { get; set; } = 10;
+
+    /// <summary>Artificial delay for the placeholder provider, to make load tests behave like a real one.</summary>
+    public int DummyLatencyMilliseconds { get; set; }
 }
 
 /// <summary>Any failure talking to the AI provider: timeout, network, HTTP error, bad or empty response.</summary>

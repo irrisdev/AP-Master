@@ -1,5 +1,7 @@
 ﻿using AP_Master.Server.Properties;
+using AP_Master.Server.Concurrency;
 using AP_Master.Server.DTOs.Chat;
+using AP_Master.Server.Exceptions;
 using AP_Master.Server.Enums;
 using AP_Master.Server.Models;
 
@@ -37,6 +39,12 @@ public class ChatService : IChatService
         Write in plain text without markdown formatting.
         """;
 
+    /// <summary>
+    /// How long a message waits for the previous message in the same conversation to finish.
+    /// Longer than the worst-case turn (a classification call plus a reply call, each with a 30 s AI timeout).
+    /// </summary>
+    private static readonly TimeSpan ConversationLockTimeout = TimeSpan.FromSeconds(90);
+
     private readonly ICustomerService _customerService;
     private readonly IConversationService _conversationService;
     private readonly IMessageService _messageService;
@@ -44,6 +52,7 @@ public class ChatService : IChatService
     private readonly ITicketService _ticketService;
     private readonly IAIService _aiService;
     private readonly ITroubleshootingOutcomeDetector _outcomeDetector;
+    private readonly ConversationLocks _conversationLocks;
     private readonly ILogger<ChatService> _logger;
 
     public ChatService(
@@ -54,6 +63,7 @@ public class ChatService : IChatService
         ITicketService ticketService,
         IAIService aiService,
         ITroubleshootingOutcomeDetector outcomeDetector,
+        ConversationLocks conversationLocks,
         ILogger<ChatService> logger)
     {
         _customerService = customerService;
@@ -63,6 +73,7 @@ public class ChatService : IChatService
         _ticketService = ticketService;
         _aiService = aiService;
         _outcomeDetector = outcomeDetector;
+        _conversationLocks = conversationLocks;
         _logger = logger;
     }
 
@@ -74,20 +85,27 @@ public class ChatService : IChatService
         await _customerService.EnsureExistsAsync(request.CustomerId, cancellationToken);
         var content = _messageService.ValidateCustomerContent(request.Message);
 
-        // 2. Load the customer's conversation (ownership checked) or start a new one.
-        Conversation conversation;
-        RequestType? newConversationType = null;
-
-        if (request.ConversationId is int conversationId)
+        // 2. Start a new conversation. Its ID isn't known to anyone else yet, so no lock is needed.
+        if (request.ConversationId is not int conversationId)
         {
-            conversation = await _conversationService.GetOwnedAsync(request.CustomerId, conversationId, cancellationToken);
-        }
-        else
-        {
-            newConversationType = (await _classificationService.ClassifyAsync(content, cancellationToken)).RequestType;
-            conversation = await _conversationService.StartAsync(request.CustomerId, newConversationType.Value, cancellationToken);
+            var newConversationType = (await _classificationService.ClassifyAsync(content, cancellationToken)).RequestType;
+            var started = await _conversationService.StartAsync(request.CustomerId, newConversationType, cancellationToken);
+            return await ProcessTurnAsync(started, content, newConversationType, cancellationToken);
         }
 
+        // Or continue an existing one. Turns in the same conversation run one at a time, so two messages
+        // sent at once can't both decide "no open ticket yet" and raise two. The conversation is loaded
+        // after the lock is taken, so this turn sees everything the previous one saved.
+        using var turn = await _conversationLocks.TryAcquireAsync(conversationId, ConversationLockTimeout, cancellationToken)
+            ?? throw new ConflictException("Your previous message is still being processed. Please wait for the reply and try again.");
+
+        var conversation = await _conversationService.GetOwnedAsync(request.CustomerId, conversationId, cancellationToken);
+        return await ProcessTurnAsync(conversation, content, newConversationType: null, cancellationToken);
+    }
+
+    private async Task<ChatResponse> ProcessTurnAsync(
+        Conversation conversation, string content, RequestType? newConversationType, CancellationToken cancellationToken)
+    {
         var wasTroubleshooting = conversation.Status == ConversationStatus.Troubleshooting;
 
         // 3. Always record the customer's message.

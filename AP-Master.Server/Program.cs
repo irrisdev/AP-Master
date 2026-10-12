@@ -1,72 +1,62 @@
-
-
-
-using System.Net.Http.Headers;
 using AP_Master.Server.Data;
-using AP_Master.Server.Development;
+using AP_Master.Server.HealthChecks;
+using AP_Master.Server.Hubs;
 using AP_Master.Server.Middleware;
 using AP_Master.Server.Properties;
-using AP_Master.Server.Services;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-
-// Add controllers
-builder.Services.AddControllers();
+// Add controllers; every error response, including validation failures, is application/problem+json
+builder.Services.AddControllers(options => options.Filters.Add(new ProblemDetailsContentTypeFilter()));
 
 // Map swagger and OpenAPI for API documentation
 builder.Services.AddOpenApi();
 
-builder.Services.AddDbContext<TelegroupDbContext>(options =>
-{
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection"));
-});
+// SQLite, with the path resolved the same way on every OS (see DatabaseSetup)
+var connectionString = DatabaseSetup.ResolveSqliteConnectionString(
+    builder.Configuration.GetConnectionString("DefaultConnection"), builder.Environment.ContentRootPath);
+builder.Services.AddDbContext<TelegroupDbContext>(options => options.UseSqlite(connectionString));
 
-// Dependency injection for application services
+// Application services, SignalR and health checks
 builder.Services.AddApplicationServices();
 
-// Set up AI service integration with configured key
-// either AI:ApiKey in appsettings, or AI__ApiKey
-builder.Services.Configure<AIOptions>(builder.Configuration.GetSection(AIOptions.SectionName));
-var ai = builder.Configuration.GetSection(AIOptions.SectionName).Get<AIOptions>() ?? new AIOptions();
+// AI provider (real or placeholder), behind a server-wide concurrency limit
+builder.Services.AddAIServices(builder.Configuration);
 
-if (string.IsNullOrWhiteSpace(ai.ApiKey))
-{
-    builder.Services.AddSingleton<IAIService, DummyAIService>();
-}
-else
-{
-    builder.Services.AddHttpClient<IAIService, AIService>(client =>
-    {
-        client.BaseAddress = new Uri(ai.BaseUrl);
-        client.Timeout = TimeSpan.FromSeconds(ai.TimeoutSeconds);
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ai.ApiKey);
-        client.DefaultRequestHeaders.Add("X-Title", "Telegroup Customer Service");
-    });
-}
+// Per-client rate limits on the API, with a tighter one on chat
+builder.Services.AddApiRateLimiting(builder.Configuration);
 
-// Cors to allow React frontend to communicate with API
+// CORS for a frontend served from another origin. In development the Vite proxy makes the SPA
+// same-origin, so this only matters if the client is hosted separately.
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("Frontend", policy =>
-    {
-        policy
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowAnyOrigin();
-    });
+    options.AddPolicy("Frontend", policy => policy
+        .WithOrigins(allowedOrigins)
+        .AllowAnyHeader()
+        .AllowAnyMethod()
+        .AllowCredentials()); // SignalR sends credentials on cross-origin connections
 });
 
 var app = builder.Build();
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+app.UseMiddleware<SecurityHeadersMiddleware>();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
 
 app.UseDefaultFiles();
 app.MapStaticAssets();
 
-// Configure the HTTP request pipeline.
+// API documentation, development only
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -75,26 +65,30 @@ if (app.Environment.IsDevelopment())
         options.SwaggerEndpoint("/openapi/v1.json", "Telegroup API V1");
     });
     app.MapScalarApiReference();
-    
-    // Ensure database is created and migrations are applied during development
-    using (var scope = app.Services.CreateScope())
-    {
-        var dbContext = scope.ServiceProvider.GetRequiredService<TelegroupDbContext>();
-        //dbContext.Database.EnsureCreated();
-        dbContext.Database.Migrate();
-        await DbSeeder.SeedAsync(dbContext);
-    }
-
 }
-
-app.UseHttpsRedirection();
-
-app.UseAuthorization();
 
 app.UseCors("Frontend");
 
+app.UseRateLimiter();
+
+app.UseAuthorization();
+
+app.MapHealthChecks("/health", new HealthCheckOptions { ResponseWriter = HealthCheckResponse.WriteAsync });
+
 app.MapControllers();
+
+app.MapHub<StaffHub>(StaffHub.Path);
+
+// Unknown API routes are a JSON 404, not the SPA's index.html.
+app.MapFallback("/api/{**path}", context => ProblemResponses.WriteAsync(context, StatusCodes.Status404NotFound,
+    "Resource not found", $"No API endpoint matches {context.Request.Method} {context.Request.Path}."));
 
 app.MapFallbackToFile("/index.html");
 
+// Apply migrations and seed demo data before accepting requests (configurable under "Database").
+await DatabaseSetup.InitialiseAsync(app.Services);
+
 app.Run();
+
+/// <summary>Exposed so integration tests can host the app with WebApplicationFactory.</summary>
+public partial class Program;
