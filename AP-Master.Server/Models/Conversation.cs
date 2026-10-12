@@ -21,6 +21,4 @@ public class Conversation
     public ICollection<Message> Messages { get; set; } = new List<Message>();
 
     public ICollection<SupportTicket> SupportTickets { get; set; } = new List<SupportTicket>();
-
-    public ICollection<Complaint> Complaints { get; set; } = new List<Complaint>();
 }

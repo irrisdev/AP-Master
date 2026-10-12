@@ -17,19 +17,25 @@ public class TicketsController : ControllerBase
         _ticketService = ticketService;
     }
 
-    /// <summary>Lists support tickets, newest first. Optionally filter by status and/or customer.</summary>
+    /// <summary>
+    /// Lists tickets (support requests and complaints), newest first.
+    /// Optionally filter by status, type (TechnicalSupport, ServiceIssue, Complaint), severity, escalation and/or customer.
+    /// </summary>
     /// <response code="200">Tickets returned (may be empty).</response>
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<TicketResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<TicketResponse>>> GetAll(
         [FromQuery] TicketStatus? status,
+        [FromQuery] RequestType? type,
+        [FromQuery] TicketSeverity? severity,
+        [FromQuery] bool? escalated,
         [FromQuery] int? customerId,
         CancellationToken cancellationToken)
     {
-        return Ok(await _ticketService.GetAllAsync(status, customerId, cancellationToken));
+        return Ok(await _ticketService.GetAllAsync(status, type, severity, escalated, customerId, cancellationToken));
     }
 
-    /// <summary>Gets a support ticket by ID.</summary>
+    /// <summary>Gets a ticket by ID.</summary>
     /// <response code="200">Ticket found.</response>
     /// <response code="404">Ticket not found.</response>
     [HttpGet("{id:int}")]
@@ -66,5 +72,18 @@ public class TicketsController : ControllerBase
     public async Task<ActionResult<TicketResponse>> Close(int id, CancellationToken cancellationToken)
     {
         return Ok(await _ticketService.CloseAsync(id, cancellationToken));
+    }
+
+    /// <summary>Manually escalates a ticket to senior staff.</summary>
+    /// <response code="200">Ticket escalated.</response>
+    /// <response code="404">Ticket not found.</response>
+    /// <response code="409">Ticket was already escalated.</response>
+    [HttpPost("{id:int}/escalate")]
+    [ProducesResponseType(typeof(TicketResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<TicketResponse>> Escalate(int id, CancellationToken cancellationToken)
+    {
+        return Ok(await _ticketService.EscalateAsync(id, cancellationToken));
     }
 }

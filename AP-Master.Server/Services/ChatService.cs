@@ -41,7 +41,6 @@ public class ChatService : IChatService
     private readonly IConversationService _conversationService;
     private readonly IMessageService _messageService;
     private readonly IClassificationService _classificationService;
-    private readonly IComplaintService _complaintService;
     private readonly ITicketService _ticketService;
     private readonly IAIService _aiService;
     private readonly ITroubleshootingOutcomeDetector _outcomeDetector;
@@ -52,7 +51,6 @@ public class ChatService : IChatService
         IConversationService conversationService,
         IMessageService messageService,
         IClassificationService classificationService,
-        IComplaintService complaintService,
         ITicketService ticketService,
         IAIService aiService,
         ITroubleshootingOutcomeDetector outcomeDetector,
@@ -62,7 +60,6 @@ public class ChatService : IChatService
         _conversationService = conversationService;
         _messageService = messageService;
         _classificationService = classificationService;
-        _complaintService = complaintService;
         _ticketService = ticketService;
         _aiService = aiService;
         _outcomeDetector = outcomeDetector;
@@ -120,15 +117,15 @@ public class ChatService : IChatService
         _logger.LogInformation("Routing message in conversation {ConversationId} as {RequestType}",
             conversation.Id, requestType);
 
-        // 6. Never open a second complaint or ticket for the same problem in one conversation.
+        // 6. Never open a second complaint or support ticket for the same problem in one conversation.
         if (requestType == RequestType.Complaint &&
-            await _complaintService.GetOpenForConversationAsync(conversation.Id, cancellationToken) is { } openComplaint)
+            await _ticketService.GetOpenComplaintAsync(conversation.Id, cancellationToken) is { } openComplaint)
         {
             return await HandleOpenComplaintFollowUpAsync(conversation, openComplaint, cancellationToken);
         }
 
         if (requestType == RequestType.TechnicalSupport &&
-            await _ticketService.GetOpenForConversationAsync(conversation.Id, cancellationToken) is { } openTicket)
+            await _ticketService.GetOpenSupportTicketAsync(conversation.Id, cancellationToken) is { } openTicket)
         {
             return await HandleOpenTicketFollowUpAsync(conversation, openTicket, cancellationToken);
         }
@@ -144,15 +141,15 @@ public class ChatService : IChatService
     }
 
     /// <summary>
-    /// The topic an unclear follow-up belongs to. Complaints and tickets are one-off actions that have
+    /// The topic an unclear follow-up belongs to. Complaint and support tickets are one-off actions that have
     /// already happened, so unclear follow-ups to them become questions answered by the AI with context,
-    /// never another complaint or ticket. The exception is when we asked what a complaint is about and
+    /// never another ticket. The exception is when we asked what a complaint is about and
     /// nothing has been logged yet: then the reply is the complaint.
     /// </summary>
     private async Task<RequestType> FollowUpTopicAsync(Conversation conversation, CancellationToken cancellationToken)
     {
         if (conversation.RequestType == RequestType.Complaint &&
-            !await _complaintService.AnyForConversationAsync(conversation.Id, cancellationToken))
+            !await _ticketService.AnyComplaintForConversationAsync(conversation.Id, cancellationToken))
         {
             return RequestType.Complaint;
         }
@@ -208,14 +205,14 @@ public class ChatService : IChatService
         if (acknowledgement.OutOfScope)
             return await ReplyOutOfScopeAsync(conversation, acknowledgement.Text, cancellationToken);
 
-        var ticket = await _ticketService.CreateTicketAsync(conversation.CustomerId, conversation.Id, message, cancellationToken);
+        var ticket = await _ticketService.CreateTicketAsync(conversation.CustomerId, conversation.Id, RequestType.TechnicalSupport, message, cancellationToken);
 
         await _conversationService.UpdateStateAsync(conversation, ConversationStatus.Escalated, RequestType.TechnicalSupport, cancellationToken);
 
         var opening = acknowledgement.Text ?? "I'm sorry you're having trouble with your equipment.";
         var reply =
             $"{opening}\n\n" +
-            $"I've raised a support ticket with our technical team. Your reference is {TicketReference.For(ticket.Id)}. " +
+            $"I've raised a support ticket with our technical team. Your reference is {ticket.Reference}. " +
             "A technician will review it and contact you to arrange the next steps. They can see everything you've " +
             "said in this chat, so feel free to add any more details here.";
 
@@ -323,7 +320,7 @@ public class ChatService : IChatService
         if (acknowledgement.OutOfScope)
             return await ReplyOutOfScopeAsync(conversation, acknowledgement.Text, cancellationToken);
 
-        var complaint = await _complaintService.CreateComplaintAsync(conversation.CustomerId, conversation.Id, message, cancellationToken);
+        var complaint = await _ticketService.CreateTicketAsync(conversation.CustomerId, conversation.Id, RequestType.Complaint, message, cancellationToken);
 
         var status = complaint.Escalated ? ConversationStatus.Escalated : ConversationStatus.Active;
         await _conversationService.UpdateStateAsync(conversation, status, RequestType.Complaint, cancellationToken);
@@ -340,17 +337,17 @@ public class ChatService : IChatService
             "If there's anything else you'd like them to know, such as dates, account details or what you'd like us " +
             "to do to put things right, just reply here.";
 
-        return await ReplyAsync(conversation, RequestType.Complaint, reply, complaint.Escalated, ticketId: null, cancellationToken);
+        return await ReplyAsync(conversation, RequestType.Complaint, reply, complaint.Escalated, ticketId: complaint.Id, cancellationToken);
     }
 
-    private async Task<ChatResponse> HandleOpenComplaintFollowUpAsync(Conversation conversation, Complaint complaint, CancellationToken cancellationToken)
+    private async Task<ChatResponse> HandleOpenComplaintFollowUpAsync(Conversation conversation, SupportTicket complaint, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Conversation {ConversationId} already has open complaint {Reference}; not creating another",
             conversation.Id, complaint.Reference);
 
         var caseSummary =
             $"This customer's complaint has already been recorded in this conversation. Reference: {complaint.Reference}. " +
-            $"Category: {complaint.Category}. Severity: {complaint.Severity}. " +
+            $"Category: {complaint.Category}. Severity: {complaint.Severity}. Status: {complaint.Status}. " +
             (complaint.Escalated ? "It has been escalated to a senior member of the team." : "It is waiting to be reviewed by the customer service team.");
 
         var fallback =
@@ -358,12 +355,12 @@ public class ChatService : IChatService
             "can see everything you've said in this conversation.";
 
         return await ReplyToOpenCaseAsync(conversation, RequestType.Complaint, caseSummary, fallback,
-            complaint.Escalated, ticketId: null, cancellationToken);
+            complaint.Escalated, ticketId: complaint.Id, cancellationToken);
     }
 
     private async Task<ChatResponse> HandleOpenTicketFollowUpAsync(Conversation conversation, SupportTicket ticket, CancellationToken cancellationToken)
     {
-        var reference = TicketReference.For(ticket.Id);
+        var reference = ticket.Reference;
         _logger.LogInformation("Conversation {ConversationId} already has open ticket {Reference}; not creating another",
             conversation.Id, reference);
 
@@ -379,7 +376,7 @@ public class ChatService : IChatService
             escalated: true, ticketId: ticket.Id, cancellationToken);
     }
 
-    /// <summary>Answers a follow-up about an existing complaint or ticket using the conversation so far.</summary>
+    /// <summary>Answers a follow-up about an existing complaint or support ticket using the conversation so far.</summary>
     private async Task<ChatResponse> ReplyToOpenCaseAsync(
         Conversation conversation, RequestType requestType, string caseSummary, string fallback,
         bool escalated, int? ticketId, CancellationToken cancellationToken)
@@ -405,14 +402,14 @@ public class ChatService : IChatService
     private async Task<ChatResponse> EscalateServiceIssueToTicketAsync(
         Conversation conversation, string description, string replyOpening, CancellationToken cancellationToken)
     {
-        if (await _ticketService.GetOpenForConversationAsync(conversation.Id, cancellationToken) is { } openTicket)
+        if (await _ticketService.GetOpenSupportTicketAsync(conversation.Id, cancellationToken) is { } openTicket)
             return await HandleOpenTicketFollowUpAsync(conversation, openTicket, cancellationToken);
 
-        var ticket = await _ticketService.CreateTicketAsync(conversation.CustomerId, conversation.Id, description, cancellationToken);
+        var ticket = await _ticketService.CreateTicketAsync(conversation.CustomerId, conversation.Id, RequestType.ServiceIssue, description, cancellationToken);
 
         await _conversationService.UpdateStateAsync(conversation, ConversationStatus.Escalated, RequestType.ServiceIssue, cancellationToken);
 
-        var reply = $"{replyOpening} (reference {TicketReference.For(ticket.Id)}) with our technical team, including the details you've given me. " +
+        var reply = $"{replyOpening} (reference {ticket.Reference}) with our technical team, including the details you've given me. " +
                     "They'll be in touch shortly.";
 
         return await ReplyAsync(conversation, RequestType.ServiceIssue, reply, escalated: true, ticketId: ticket.Id, cancellationToken);

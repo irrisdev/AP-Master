@@ -14,7 +14,6 @@ public class TelegroupDbContext : DbContext
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<SupportTicket> SupportTickets => Set<SupportTicket>();
-    public DbSet<Complaint> Complaints => Set<Complaint>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -66,23 +65,9 @@ public class TelegroupDbContext : DbContext
             .HasForeignKey(t => t.ConversationId)
             .OnDelete(DeleteBehavior.SetNull);
 
-        // Customer -> Complaints
-        modelBuilder.Entity<Complaint>()
-            .HasOne(c => c.Customer)
-            .WithMany(c => c.Complaints)
-            .HasForeignKey(c => c.CustomerId)
-            .OnDelete(DeleteBehavior.Cascade);
-
-        // Conversation -> Complaints
-        modelBuilder.Entity<Complaint>()
-            .HasOne(c => c.Conversation)
-            .WithMany(c => c.Complaints)
-            .HasForeignKey(c => c.ConversationId)
-            .OnDelete(DeleteBehavior.SetNull);
-
-        // Complaint reference should be unique
-        modelBuilder.Entity<Complaint>()
-            .HasIndex(c => c.Reference)
+        // Ticket reference should be unique
+        modelBuilder.Entity<SupportTicket>()
+            .HasIndex(t => t.Reference)
             .IsUnique();
 
         // Store enums as strings for easier database inspection
@@ -98,12 +83,12 @@ public class TelegroupDbContext : DbContext
             .Property(t => t.Status)
             .HasConversion<string>();
 
-        modelBuilder.Entity<Complaint>()
-            .Property(c => c.Severity)
+        modelBuilder.Entity<SupportTicket>()
+            .Property(t => t.Type)
             .HasConversion<string>();
 
-        modelBuilder.Entity<Complaint>()
-            .Property(c => c.Status)
+        modelBuilder.Entity<SupportTicket>()
+            .Property(t => t.Severity)
             .HasConversion<string>();
     }
 }

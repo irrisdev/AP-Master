@@ -5,5 +5,9 @@ public enum TicketStatus
     AwaitingTechnician,
     InProgress,
     Resolved,
-    Closed
+    Closed,
+
+    // Starting status for complaint tickets. Added last so the integer values
+    // the API returns for the existing statuses don't change.
+    Open
 }
