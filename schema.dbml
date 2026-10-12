@@ -1,0 +1,99 @@
+// Telegroup support database (AP-Master.Server)
+
+Project Telegroup {
+  database_type: 'SQLite'
+  Note: 'Enums are stored as their string names (EF HasConversion<string>).'
+}
+
+Enum request_type {
+  CustomerEnquiry
+  TechnicalSupport
+  ServiceIssue
+  Complaint
+}
+
+Enum conversation_status {
+  Active
+  Troubleshooting
+  Resolved
+  Escalated
+}
+
+Enum ticket_status {
+  AwaitingTechnician
+  InProgress
+  Resolved
+  Closed
+  Open [note: 'Starting status for complaint tickets']
+}
+
+Enum ticket_severity {
+  Low
+  Medium
+  High
+}
+
+Table Customers {
+  Id integer [pk, increment]
+  Name varchar(100) [not null]
+  Email varchar(200) [not null, unique]
+  CreatedAt datetime [not null]
+  UpdatedAt datetime [not null]
+}
+
+Table Conversations {
+  Id integer [pk, increment]
+  CustomerId integer [not null]
+  RequestType request_type [not null]
+  Status conversation_status [not null, default: 'Active']
+  CreatedAt datetime [not null]
+  UpdatedAt datetime [not null]
+
+  Indexes {
+    CustomerId
+  }
+}
+
+Table Messages {
+  Id integer [pk, increment]
+  ConversationId integer [not null]
+  Sender text [not null, note: '"Customer" or "AI"']
+  Content text [not null]
+  CreatedAt datetime [not null]
+
+  Indexes {
+    ConversationId
+  }
+}
+
+Table SupportTickets {
+  Id integer [pk, increment]
+  CustomerId integer [not null]
+  ConversationId integer [null]
+  Type request_type [not null, note: 'TechnicalSupport, ServiceIssue or Complaint']
+  Reference text [not null, unique, note: 'e.g. TKT-1A2B3C4D or CMP-6D4A1140']
+  Description text [not null]
+  Status ticket_status [not null, default: 'AwaitingTechnician']
+  Category text [null, note: 'Complaints only']
+  Severity ticket_severity [null, note: 'Complaints only']
+  Escalated boolean [not null, default: false]
+  CreatedAt datetime [not null]
+  UpdatedAt datetime [not null]
+
+  Indexes {
+    CustomerId
+    ConversationId
+  }
+}
+
+// Customer 1 ── * Conversations (cascade delete)
+Ref: Conversations.CustomerId > Customers.Id [delete: cascade]
+
+// Conversation 1 ── * Messages (cascade delete)
+Ref: Messages.ConversationId > Conversations.Id [delete: cascade]
+
+// Customer 1 ── * SupportTickets (cascade delete)
+Ref: SupportTickets.CustomerId > Customers.Id [delete: cascade]
+
+// Conversation 1 ── * SupportTickets (optional; FK set to null on delete)
+Ref: SupportTickets.ConversationId > Conversations.Id [delete: set null]
