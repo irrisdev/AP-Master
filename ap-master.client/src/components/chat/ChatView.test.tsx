@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, limits } from '../../api/index.ts';
+import { ApiError, RequestType, limits } from '../../api/index.ts';
 import type { CustomerDto } from '../../api/index.ts';
 import { instantMock, renderWithApi } from '../../test/render.tsx';
 import { ChatView } from './ChatView.tsx';
@@ -66,7 +66,32 @@ describe('ChatView', () => {
         ).toBeInTheDocument();
         expect(transcript().getByText('Complaint')).toBeInTheDocument();
         // Low severity: recorded, not escalated.
+        expect(await screen.findByText('Complaint logged')).toBeInTheDocument();
         expect(screen.queryByText('Complaint logged and escalated')).not.toBeInTheDocument();
+        // A complaint is a ticket on the server, but it is not a support ticket.
+        expect(screen.queryByText(/Support ticket #\d+ raised/)).not.toBeInTheDocument();
+    });
+
+    it('announces a ticket once, not on every follow-up about it', async () => {
+        const user = userEvent.setup();
+        const api = instantMock();
+        // The server returns the open ticket's id again on a follow-up.
+        vi.spyOn(api, 'sendMessage').mockResolvedValue({
+            conversationId: 101,
+            requestType: RequestType.TechnicalSupport,
+            message: 'Your engineer is booked.',
+            escalated: true,
+            ticketId: 42,
+        });
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />, api);
+
+        await send(user, 'My router will not connect');
+        await screen.findByText('Support ticket #42 raised');
+
+        await send(user, 'When will the engineer arrive?');
+        await waitFor(() => expect(transcript().getAllByText('Your engineer is booked.')).toHaveLength(2));
+
+        expect(screen.getAllByText('Support ticket #42 raised')).toHaveLength(1);
     });
 
     it('tells the customer when a serious complaint has been escalated', async () => {
@@ -213,6 +238,28 @@ describe('ChatView customer history', () => {
         await send(user, 'Any update on this?');
         await waitFor(() => expect(spy).toHaveBeenCalled());
         expect(spy.mock.calls[0][0]).toMatchObject({ customerId: 1, conversationId: 101 });
+    });
+
+    it('does not re-announce a ticket the reopened conversation already had', async () => {
+        const user = userEvent.setup();
+        const api = instantMock();
+        // The seeded conversation #101 already has ticket #102.
+        vi.spyOn(api, 'sendMessage').mockResolvedValue({
+            conversationId: 101,
+            requestType: RequestType.TechnicalSupport,
+            message: 'Your ticket is still with our engineers.',
+            escalated: true,
+            ticketId: 102,
+        });
+        renderWithApi(<ChatView customer={johnDoe} onSwitchCustomer={noop} />, api);
+
+        await user.click(await within(history()).findByRole('button', { name: /Conversation #101/ }));
+        await screen.findByText('My router will not connect since the firmware update last night.');
+
+        await send(user, 'Any update on this?');
+        await screen.findByText('Your ticket is still with our engineers.');
+
+        expect(screen.queryByText(/Support ticket #\d+ raised/)).not.toBeInTheDocument();
     });
 
     it('does not show one customer the conversations of another', async () => {

@@ -1,14 +1,12 @@
 import { useState } from 'react';
 import { Tabs } from '../ui/Tabs.tsx';
 import type { TabDefinition } from '../ui/Tabs.tsx';
-import { ComplaintsPanel } from './ComplaintsPanel.tsx';
 import { ConversationsPanel } from './ConversationsPanel.tsx';
 import { TicketsPanel } from './TicketsPanel.tsx';
 import './dashboard.css';
 
 const sections: TabDefinition[] = [
     { id: 'tickets', label: 'Tickets' },
-    { id: 'complaints', label: 'Complaints' },
     { id: 'conversations', label: 'Conversations' },
 ];
 
@@ -26,8 +24,8 @@ export function DashboardView({ customerId }: DashboardViewProps) {
             <header className="dashboard__header">
                 <h1>Agent dashboard</h1>
                 <p className="dashboard__subtitle">
-                    Tickets and complaints raised by the assistant, and the conversations behind
-                    them.
+                    Tickets raised by the assistant — support requests and complaints alike — and
+                    the conversations behind them.
                 </p>
             </header>
 
@@ -41,7 +39,6 @@ export function DashboardView({ customerId }: DashboardViewProps) {
                 tabIndex={0}
             >
                 {active === 'tickets' ? <TicketsPanel /> : null}
-                {active === 'complaints' ? <ComplaintsPanel /> : null}
                 {active === 'conversations' ? (
                     <ConversationsPanel initialCustomerId={customerId} />
                 ) : null}

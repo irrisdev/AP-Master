@@ -184,12 +184,48 @@ describe('HttpApiClient error handling', () => {
         const fetchSpy = vi.fn(() => Promise.resolve(Response.json([])));
         vi.stubGlobal('fetch', fetchSpy);
 
-        await new HttpApiClient().listComplaints({ escalated: false });
+        await new HttpApiClient().listTickets({ escalated: false });
 
         expect(fetchSpy).toHaveBeenLastCalledWith(
-            '/api/complaints?escalated=false',
+            '/api/tickets?escalated=false',
             expect.anything(),
         );
+    });
+
+    it('sends the type and severity filters, including a zero value', async () => {
+        const fetchSpy = vi.fn(() => Promise.resolve(Response.json([])));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        // Complaint is 3; Low severity is 0, which a truthiness check would drop.
+        await new HttpApiClient().listTickets({ type: 3, severity: 0 });
+
+        expect(fetchSpy).toHaveBeenLastCalledWith(
+            '/api/tickets?type=3&severity=0',
+            expect.anything(),
+        );
+    });
+
+    it('escalates a ticket with a POST and reads its timestamps as UTC', async () => {
+        const fetchSpy = vi.fn(() =>
+            Promise.resolve(
+                Response.json({
+                    id: 4,
+                    escalated: true,
+                    createdAt: '2026-09-23T14:01:50.43',
+                    updatedAt: '2026-09-23T14:05:00',
+                }),
+            ),
+        );
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const ticket = await new HttpApiClient().escalateTicket(4);
+
+        expect(fetchSpy).toHaveBeenLastCalledWith(
+            '/api/tickets/4/escalate',
+            expect.objectContaining({ method: 'POST' }),
+        );
+        expect(ticket.createdAt).toBe('2026-09-23T14:01:50.43Z');
+        expect(ticket.updatedAt).toBe('2026-09-23T14:05:00Z');
     });
 
     it('uses PUT for a ticket status change, as the server expects', async () => {

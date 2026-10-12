@@ -1,5 +1,13 @@
 import { useCallback, useState } from 'react';
-import { TicketStatus, ticketStatusLabel, useApi } from '../../api/index.ts';
+import {
+    RequestType,
+    TicketSeverity,
+    TicketStatus,
+    requestTypeLabel,
+    ticketSeverityLabel,
+    ticketStatusLabel,
+    useApi,
+} from '../../api/index.ts';
 import type { TicketDto } from '../../api/index.ts';
 import { useAsync } from '../../hooks/useAsync.ts';
 import { Button } from '../ui/Button.tsx';
@@ -9,7 +17,8 @@ import { Select } from '../ui/Select.tsx';
 import { Skeleton } from '../ui/Skeleton.tsx';
 import { TextField } from '../ui/TextField.tsx';
 import { TicketDetail } from './TicketDetail.tsx';
-import { TicketStatusBadge } from './StatusBadges.tsx';
+import { Badge } from '../ui/Badge.tsx';
+import { RequestTypeBadge, TicketSeverityBadge, TicketStatusBadge } from './StatusBadges.tsx';
 
 const anyValue = '';
 
@@ -21,10 +30,41 @@ const statusOptions = [
     })),
 ];
 
+/** A customer enquiry never raises a ticket, so it is not offered. */
+const typeOptions = [
+    { value: anyValue, label: 'Any type' },
+    ...[RequestType.TechnicalSupport, RequestType.ServiceIssue, RequestType.Complaint].map(
+        (type) => ({ value: String(type), label: requestTypeLabel[type] }),
+    ),
+];
+
+/** Only complaints have a severity, so choosing one narrows the list to complaints. */
+const severityOptions = [
+    { value: anyValue, label: 'Any severity' },
+    ...Object.values(TicketSeverity).map((severity) => ({
+        value: String(severity),
+        label: ticketSeverityLabel[severity],
+    })),
+];
+
+const escalatedOptions = [
+    { value: anyValue, label: 'Any' },
+    { value: 'true', label: 'Escalated' },
+    { value: 'false', label: 'Not escalated' },
+];
+
+/** The select's string value back to an enum member, or undefined for "any". */
+function optional<T extends number>(value: string): T | undefined {
+    return value === anyValue ? undefined : (Number(value) as T);
+}
+
 export function TicketsPanel() {
     const api = useApi();
 
     const [status, setStatus] = useState<TicketStatus | undefined>(undefined);
+    const [type, setType] = useState<RequestType | undefined>(undefined);
+    const [severity, setSeverity] = useState<TicketSeverity | undefined>(undefined);
+    const [escalated, setEscalated] = useState<boolean | undefined>(undefined);
     const [customerId, setCustomerId] = useState<number | undefined>(undefined);
     const [customerDraft, setCustomerDraft] = useState('');
     const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -32,8 +72,9 @@ export function TicketsPanel() {
     // Memoised so the filter values, not the identity of an inline arrow, decide
     // when the list refetches.
     const load = useCallback(
-        (signal: AbortSignal) => api.listTickets({ status, customerId }, signal),
-        [api, status, customerId],
+        (signal: AbortSignal) =>
+            api.listTickets({ status, type, severity, escalated, customerId }, signal),
+        [api, status, type, severity, escalated, customerId],
     );
 
     const { data: tickets, error, loading, reload, setData } = useAsync(load);
@@ -47,10 +88,18 @@ export function TicketsPanel() {
         [setData],
     );
 
-    const filtered = status !== undefined || customerId !== undefined;
+    const filtered =
+        status !== undefined ||
+        type !== undefined ||
+        severity !== undefined ||
+        escalated !== undefined ||
+        customerId !== undefined;
 
     function clearFilters() {
         setStatus(undefined);
+        setType(undefined);
+        setSeverity(undefined);
+        setEscalated(undefined);
         setCustomerId(undefined);
         setCustomerDraft('');
     }
@@ -66,10 +115,12 @@ export function TicketsPanel() {
     }
 
     return (
-        <div className="dashboard__split">
-            <section className="panel" aria-label="Support tickets">
+        <div
+            className={`dashboard__split${selectedId === null ? ' dashboard__split--single' : ''}`}
+        >
+            <section className="panel" aria-label="Tickets">
                 <header className="panel__header">
-                    <h2>Support tickets</h2>
+                    <h2>Tickets</h2>
                     <Button variant="ghost" size="sm" onClick={reload}>
                         Refresh
                     </Button>
@@ -86,11 +137,31 @@ export function TicketsPanel() {
                         label="Status"
                         value={status === undefined ? anyValue : String(status)}
                         options={statusOptions}
+                        onChange={(event) => setStatus(optional<TicketStatus>(event.target.value))}
+                    />
+                    <Select
+                        label="Type"
+                        value={type === undefined ? anyValue : String(type)}
+                        options={typeOptions}
+                        onChange={(event) => setType(optional<RequestType>(event.target.value))}
+                    />
+                    <Select
+                        label="Severity"
+                        value={severity === undefined ? anyValue : String(severity)}
+                        options={severityOptions}
                         onChange={(event) =>
-                            setStatus(
+                            setSeverity(optional<TicketSeverity>(event.target.value))
+                        }
+                    />
+                    <Select
+                        label="Escalation"
+                        value={escalated === undefined ? anyValue : String(escalated)}
+                        options={escalatedOptions}
+                        onChange={(event) =>
+                            setEscalated(
                                 event.target.value === anyValue
                                     ? undefined
-                                    : (Number(event.target.value) as TicketStatus),
+                                    : event.target.value === 'true',
                             )
                         }
                     />
@@ -123,7 +194,7 @@ export function TicketsPanel() {
                         description={
                             filtered
                                 ? 'Nothing matches the current filters.'
-                                : 'Tickets raised from a chat conversation will appear here.'
+                                : 'Tickets and complaints raised from a chat conversation will appear here.'
                         }
                         action={
                             filtered ? (
@@ -139,11 +210,12 @@ export function TicketsPanel() {
                     <div className="table-scroll">
                         <table className="table">
                             <caption className="visually-hidden">
-                                Support tickets, newest first
+                                Tickets and complaints, newest first
                             </caption>
                             <thead>
                                 <tr>
                                     <th scope="col">Ticket</th>
+                                    <th scope="col">Type</th>
                                     <th scope="col">Customer</th>
                                     <th scope="col">Summary</th>
                                     <th scope="col">Status</th>
@@ -166,10 +238,23 @@ export function TicketsPanel() {
                                                 {ticket.reference}
                                             </button>
                                         </th>
+                                        <td>
+                                            <RequestTypeBadge requestType={ticket.type} />
+                                        </td>
                                         <td>#{ticket.customerId}</td>
                                         <td className="table__summary">{ticket.description}</td>
                                         <td>
-                                            <TicketStatusBadge status={ticket.status} />
+                                            <div className="badge-row">
+                                                <TicketStatusBadge status={ticket.status} />
+                                                {ticket.severity != null ? (
+                                                    <TicketSeverityBadge
+                                                        severity={ticket.severity}
+                                                    />
+                                                ) : null}
+                                                {ticket.escalated ? (
+                                                    <Badge tone="danger">Escalated</Badge>
+                                                ) : null}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}

@@ -1,18 +1,10 @@
 import { classify } from './classifier.ts';
 import { ApiError } from './contract.ts';
 import type { ApiClient } from './contract.ts';
-import {
-    ComplaintSeverity,
-    ComplaintStatus,
-    ConversationStatus,
-    RequestType,
-    TicketStatus,
-} from './types.ts';
+import { ConversationStatus, RequestType, TicketSeverity, TicketStatus } from './types.ts';
 import type {
     ChatRequest,
     ChatResponse,
-    ComplaintDto,
-    ComplaintFilter,
     ConversationDetail,
     ConversationSummary,
     CreateCustomerRequest,
@@ -34,10 +26,12 @@ import type {
  * against it does not surprise anyone at integration:
  *  - classification is a port of RuleBasedClassifier (see classifier.ts)
  *  - technical support raises a ticket and marks the conversation Escalated
- *  - service issues move the conversation to Troubleshooting, no ticket
- *  - complaints get keyword-derived severity and category; only High escalates
+ *  - service issues move the conversation to Troubleshooting, no ticket; a failed
+ *    fix raises a ServiceIssue ticket
+ *  - a complaint is a ticket of type Complaint, starting Open, with keyword-derived
+ *    severity and category; only High escalates
  *  - a reply to troubleshooting steps is read as an answer, not reclassified
- *  - senders are "Customer" and "AI"; references look like TKT-000042 / CMP-6D4A1140
+ *  - senders are "Customer" and "AI"; references look like TKT-1A2B3C4D / CMP-6D4A1140
  *
  * It stands in for the server running without an AI key: classification is the rule
  * result alone (the server only asks the AI when the rules are unsure), and replies
@@ -81,19 +75,19 @@ function includesAny(text: string, keywords: string[]): boolean {
     return keywords.some((keyword) => text.includes(keyword));
 }
 
-/** Mirrors ComplaintService.DetermineSeverity */
-function complaintSeverity(description: string): ComplaintSeverity {
+/** Mirrors TicketService.DetermineSeverity */
+function complaintSeverity(description: string): TicketSeverity {
     const text = description.toLowerCase();
     if (includesAny(text, ['legal', 'court', 'data breach', 'danger'])) {
-        return ComplaintSeverity.High;
+        return TicketSeverity.High;
     }
     if (includesAny(text, ['refund', 'billing', 'charged'])) {
-        return ComplaintSeverity.Medium;
+        return TicketSeverity.Medium;
     }
-    return ComplaintSeverity.Low;
+    return TicketSeverity.Low;
 }
 
-/** Mirrors ComplaintService.DetermineCategory */
+/** Mirrors TicketService.DetermineCategory */
 function complaintCategory(description: string): string {
     const text = description.toLowerCase();
     if (includesAny(text, ['bill', 'charged', 'refund'])) return 'Billing';
@@ -125,11 +119,6 @@ function troubleshootingOutcome(message: string): 'resolved' | 'not-resolved' | 
 /** Matches "no", "no." and "no it isn't", but not "nothing" or "now". */
 function startsWithWord(text: string, word: string): boolean {
     return text.startsWith(word) && (text.length === word.length || !/[a-z]/.test(text[word.length]));
-}
-
-/** Mirrors TicketReference.For — the reference is derived from the id, not stored. */
-function ticketReference(ticketId: number): string {
-    return `TKT-${String(ticketId).padStart(6, '0')}`;
 }
 
 /** Mirrors DbSeeder's email convention, so the mock's customers look like the seeded ones. */
@@ -172,7 +161,6 @@ export class MockApiClient implements ApiClient {
     }));
     private conversations: ConversationDetail[] = [];
     private tickets: TicketDto[] = [];
-    private complaints: ComplaintDto[] = [];
     private nextId = 100;
     private nextReference = 40412;
     private readonly latencyMs: number;
@@ -195,10 +183,15 @@ export class MockApiClient implements ApiClient {
         return this.nextId;
     }
 
-    /** Mirrors ComplaintService.GenerateReference — CMP- plus 8 uppercase hex characters. */
-    private reference(): string {
+    /**
+     * Mirrors TicketService.GenerateReference: CMP- for a complaint, TKT- otherwise, then
+     * 8 uppercase hex characters. The server's are random; these count up, so tests can
+     * predict them.
+     */
+    private reference(type: RequestType): string {
         this.nextReference += 1;
-        return `CMP-${this.nextReference.toString(16).toUpperCase().padStart(8, '0')}`;
+        const prefix = type === RequestType.Complaint ? 'CMP' : 'TKT';
+        return `${prefix}-${this.nextReference.toString(16).toUpperCase().padStart(8, '0')}`;
     }
 
     private seed(): void {
@@ -232,36 +225,38 @@ export class MockApiClient implements ApiClient {
             messages,
         });
 
-        this.tickets.push({
-            id: ticketId,
-            reference: ticketReference(ticketId),
-            customerId: 1,
-            conversationId: convoId,
-            description: 'My router will not connect since the firmware update last night.',
-            status: TicketStatus.AwaitingTechnician,
-        });
+        this.tickets.push(
+            this.newTicket(
+                ticketId,
+                1,
+                convoId,
+                RequestType.TechnicalSupport,
+                'My router will not connect since the firmware update last night.',
+                isoMinutesAgo(89),
+            ),
+        );
 
-        const secondTicketId = this.id();
-        this.tickets.push({
-            id: secondTicketId,
-            reference: ticketReference(secondTicketId),
-            customerId: 2,
-            conversationId: null,
-            description: 'Line fault reported by engineer; awaiting replacement part.',
-            status: TicketStatus.InProgress,
-        });
+        const lineFault = this.newTicket(
+            this.id(),
+            2,
+            null,
+            RequestType.ServiceIssue,
+            'Line fault reported by engineer; awaiting replacement part.',
+            isoMinutesAgo(300),
+        );
+        lineFault.status = TicketStatus.InProgress;
+        this.tickets.push(lineFault);
 
-        this.complaints.push({
-            id: this.id(),
-            reference: this.reference(),
-            customerId: 3,
-            conversationId: null,
-            description: 'Third technician visit missed without notice. I am considering legal advice.',
-            category: 'Technical Support',
-            severity: ComplaintSeverity.High,
-            status: ComplaintStatus.Open,
-            escalated: true,
-        });
+        this.tickets.push(
+            this.newTicket(
+                this.id(),
+                3,
+                null,
+                RequestType.Complaint,
+                'Third technician visit missed without notice. I am considering legal advice.',
+                isoMinutesAgo(45),
+            ),
+        );
     }
 
     async sendMessage(request: ChatRequest, signal?: AbortSignal): Promise<ChatResponse> {
@@ -323,7 +318,7 @@ export class MockApiClient implements ApiClient {
 
         switch (requestType) {
             case RequestType.TechnicalSupport: {
-                const ticket = this.createTicket(conversation, text);
+                const ticket = this.createTicket(conversation, RequestType.TechnicalSupport, text);
                 ticketId = ticket.id;
                 escalated = true;
                 conversation.status = ConversationStatus.Escalated;
@@ -331,12 +326,8 @@ export class MockApiClient implements ApiClient {
                 break;
             }
             case RequestType.Complaint: {
-                const complaint = this.recordComplaint(
-                    request.customerId,
-                    conversation.id,
-                    text,
-                    undefined,
-                );
+                const complaint = this.createTicket(conversation, RequestType.Complaint, text);
+                ticketId = complaint.id;
                 escalated = complaint.escalated;
                 conversation.status = escalated
                     ? ConversationStatus.Escalated
@@ -398,7 +389,7 @@ export class MockApiClient implements ApiClient {
             .filter((m) => m.sender === SENDER_CUSTOMER)
             .map((m) => m.content)
             .join('\n');
-        const ticket = this.createTicket(conversation, history);
+        const ticket = this.createTicket(conversation, RequestType.ServiceIssue, history);
         conversation.status = ConversationStatus.Escalated;
 
         const reply =
@@ -426,40 +417,60 @@ export class MockApiClient implements ApiClient {
         conversation.updatedAt = nowIso();
     }
 
-    private createTicket(conversation: ConversationDetail, description: string): TicketDto {
-        const id = this.id();
-        const ticket: TicketDto = {
-            id,
-            reference: ticketReference(id),
-            customerId: conversation.customerId,
-            conversationId: conversation.id,
+    private createTicket(
+        conversation: ConversationDetail,
+        type: RequestType,
+        description: string,
+    ): TicketDto {
+        const ticket = this.newTicket(
+            this.id(),
+            conversation.customerId,
+            conversation.id,
+            type,
             description,
-            status: TicketStatus.AwaitingTechnician,
-        };
+            nowIso(),
+        );
         this.tickets.push(ticket);
         return ticket;
     }
 
-    private recordComplaint(
+    /**
+     * Mirrors TicketService.CreateTicketAsync: a complaint starts Open with a severity and
+     * category, and escalates itself when the severity is High; anything else starts
+     * AwaitingTechnician with neither.
+     */
+    private newTicket(
+        id: number,
         customerId: number,
         conversationId: number | null,
+        type: RequestType,
         description: string,
-        category: string | undefined,
-    ): ComplaintDto {
-        const severity = complaintSeverity(description);
-        const complaint: ComplaintDto = {
-            id: this.id(),
-            reference: this.reference(),
+        createdAt: string,
+    ): TicketDto {
+        const ticket: TicketDto = {
+            id,
+            reference: this.reference(type),
+            type,
             customerId,
             conversationId,
             description,
-            category: category ?? complaintCategory(description),
-            severity,
-            status: ComplaintStatus.Open,
-            escalated: severity === ComplaintSeverity.High,
+            status: TicketStatus.AwaitingTechnician,
+            category: null,
+            severity: null,
+            escalated: false,
+            createdAt,
+            updatedAt: createdAt,
         };
-        this.complaints.push(complaint);
-        return complaint;
+
+        if (type === RequestType.Complaint) {
+            const severity = complaintSeverity(description);
+            ticket.status = TicketStatus.Open;
+            ticket.category = complaintCategory(description);
+            ticket.severity = severity;
+            ticket.escalated = severity === TicketSeverity.High;
+        }
+
+        return ticket;
     }
 
     async getCustomer(id: number, signal?: AbortSignal): Promise<CustomerDto> {
@@ -518,6 +529,9 @@ export class MockApiClient implements ApiClient {
         await delay(this.latencyMs, signal);
         return this.tickets
             .filter((t) => filter?.status === undefined || t.status === filter.status)
+            .filter((t) => filter?.type === undefined || t.type === filter.type)
+            .filter((t) => filter?.severity === undefined || t.severity === filter.severity)
+            .filter((t) => filter?.escalated === undefined || t.escalated === filter.escalated)
             .filter((t) => filter?.customerId === undefined || t.customerId === filter.customerId)
             .sort((a, b) => b.id - a.id)
             .map((t) => ({ ...t }));
@@ -547,6 +561,7 @@ export class MockApiClient implements ApiClient {
         }
 
         found.status = status;
+        found.updatedAt = nowIso();
         return { ...found };
     }
 
@@ -559,49 +574,30 @@ export class MockApiClient implements ApiClient {
         }
 
         found.status = TicketStatus.Closed;
+        found.updatedAt = nowIso();
         return { ...found };
     }
 
-    async listComplaints(filter?: ComplaintFilter, signal?: AbortSignal): Promise<ComplaintDto[]> {
+    async escalateTicket(id: number, signal?: AbortSignal): Promise<TicketDto> {
         await delay(this.latencyMs, signal);
-        return this.complaints
-            .filter((c) => filter?.status === undefined || c.status === filter.status)
-            .filter((c) => filter?.severity === undefined || c.severity === filter.severity)
-            .filter((c) => filter?.escalated === undefined || c.escalated === filter.escalated)
-            .sort((a, b) => b.id - a.id)
-            .map((c) => ({ ...c }));
-    }
-
-    async getComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
-        await delay(this.latencyMs, signal);
-        return { ...this.findComplaint(id) };
-    }
-
-    async escalateComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto> {
-        await delay(this.latencyMs, signal);
-        const found = this.findComplaint(id);
+        const found = this.findTicket(id);
 
         if (found.escalated) {
             throw new ApiError(
                 'Conflict',
                 409,
-                `Complaint ${found.reference} has already been escalated.`,
+                `Ticket ${found.reference} has already been escalated.`,
             );
         }
 
         found.escalated = true;
+        found.updatedAt = nowIso();
         return { ...found };
     }
 
     private findTicket(id: number): TicketDto {
         const found = this.tickets.find((t) => t.id === id);
         if (!found) throw new ApiError('Resource not found', 404, `Ticket ${id} was not found.`);
-        return found;
-    }
-
-    private findComplaint(id: number): ComplaintDto {
-        const found = this.complaints.find((c) => c.id === id);
-        if (!found) throw new ApiError('Resource not found', 404, `Complaint ${id} was not found.`);
         return found;
     }
 }
@@ -616,7 +612,7 @@ function ticketReply(ticketId: number): string {
 }
 
 /** The server's own wording for a logged complaint; it never claims one is resolved. */
-function complaintReply(complaint: ComplaintDto): string {
+function complaintReply(complaint: TicketDto): string {
     return complaint.escalated
         ? "I'm sorry to hear about this. Your complaint has been recorded and escalated to a senior member of our team. " +
               `Your complaint reference is ${complaint.reference}.`

@@ -1,13 +1,18 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, TicketStatus } from '../../api/index.ts';
+import { ApiError, RequestType, TicketSeverity, TicketStatus } from '../../api/index.ts';
 import { instantMock, renderWithApi } from '../../test/render.tsx';
 import { TicketsPanel } from './TicketsPanel.tsx';
 
-/** Rows are identified by the ticket reference the server derives from the id. */
-const firstTicket = /TKT-000102/;
-const secondTicket = /TKT-000105/;
+/**
+ * Rows are identified by reference. The mock's references count up from a fixed seed, so
+ * these are stable: a technical-support ticket, a service-issue ticket and a High-severity
+ * complaint.
+ */
+const firstTicket = /TKT-00009DDD/;
+const secondTicket = /TKT-00009DDE/;
+const complaint = /CMP-00009DDF/;
 
 function row(name: RegExp) {
     return screen.getByRole('row', { name });
@@ -24,6 +29,50 @@ describe('TicketsPanel', () => {
 
         expect(await screen.findByRole('row', { name: firstTicket })).toBeInTheDocument();
         expect(row(secondTicket)).toBeInTheDocument();
+        expect(row(complaint)).toBeInTheDocument();
+    });
+
+    it('shows each ticket type, and complaint details only on complaints', async () => {
+        renderWithApi(<TicketsPanel />);
+        await screen.findByRole('row', { name: firstTicket });
+
+        expect(within(row(firstTicket)).getByText('Technical support')).toBeInTheDocument();
+        expect(within(row(secondTicket)).getByText('Service issue')).toBeInTheDocument();
+        expect(within(row(complaint)).getByText('Complaint')).toBeInTheDocument();
+
+        expect(within(row(complaint)).getByText('High')).toBeInTheDocument();
+        expect(within(row(complaint)).getByText('Escalated')).toBeInTheDocument();
+        expect(within(row(firstTicket)).queryByText('Escalated')).toBeNull();
+    });
+
+    it('filters down to complaints by type', async () => {
+        const user = userEvent.setup();
+        renderWithApi(<TicketsPanel />);
+        await screen.findByRole('row', { name: firstTicket });
+
+        await user.selectOptions(screen.getByLabelText('Type'), String(RequestType.Complaint));
+
+        await waitFor(() => expect(screen.queryByRole('row', { name: firstTicket })).toBeNull());
+        expect(row(complaint)).toBeInTheDocument();
+        expect(screen.queryByRole('row', { name: secondTicket })).toBeNull();
+    });
+
+    it('sends the severity and escalation filters to the API', async () => {
+        const user = userEvent.setup();
+        const api = instantMock();
+        const spy = vi.spyOn(api, 'listTickets');
+        renderWithApi(<TicketsPanel />, api);
+        await screen.findByRole('row', { name: firstTicket });
+
+        await user.selectOptions(screen.getByLabelText('Severity'), String(TicketSeverity.Low));
+        await user.selectOptions(screen.getByLabelText('Escalation'), 'false');
+
+        await waitFor(() =>
+            expect(spy).toHaveBeenLastCalledWith(
+                expect.objectContaining({ severity: TicketSeverity.Low, escalated: false }),
+                expect.anything(),
+            ),
+        );
     });
 
     it('shows a skeleton rather than an empty box while loading', () => {
@@ -126,5 +175,58 @@ describe('TicketsPanel', () => {
         ).toBeInTheDocument();
         expect(screen.queryByRole('group', { name: 'Change status' })).not.toBeInTheDocument();
         await waitFor(() => expect(within(row(firstTicket)).getByText('Closed')).toBeInTheDocument());
+    });
+
+    it('shows a complaint its category and severity, and offers Open rather than Awaiting technician', async () => {
+        const user = userEvent.setup();
+        renderWithApi(<TicketsPanel />);
+        await screen.findByRole('row', { name: complaint });
+
+        const actions = await openDetail(user, complaint);
+        const detail = screen.getByRole('region', { name: /^Ticket \d+$/ });
+
+        expect(within(detail).getByText('Technical Support')).toBeInTheDocument();
+        expect(within(detail).getByText('Category')).toBeInTheDocument();
+        expect(within(actions).getByRole('button', { name: 'Open' })).toBeInTheDocument();
+        expect(
+            within(actions).queryByRole('button', { name: 'Awaiting technician' }),
+        ).not.toBeInTheDocument();
+        // Already escalated by severity, so there is nothing to escalate.
+        expect(within(detail).queryByRole('button', { name: /Escalate/ })).not.toBeInTheDocument();
+    });
+
+    it('escalates a support ticket and reflects it in the list', async () => {
+        const user = userEvent.setup();
+        renderWithApi(<TicketsPanel />);
+        await screen.findByRole('row', { name: firstTicket });
+
+        await openDetail(user, firstTicket);
+        const detail = screen.getByRole('region', { name: /^Ticket \d+$/ });
+        expect(within(detail).queryByText('Category')).not.toBeInTheDocument();
+
+        await user.click(within(detail).getByRole('button', { name: 'Escalate to senior staff' }));
+
+        await waitFor(() =>
+            expect(within(row(firstTicket)).getByText('Escalated')).toBeInTheDocument(),
+        );
+        expect(
+            within(detail).queryByRole('button', { name: 'Escalate to senior staff' }),
+        ).not.toBeInTheDocument();
+    });
+
+    it('explains a refused escalation', async () => {
+        const user = userEvent.setup();
+        const api = instantMock();
+        vi.spyOn(api, 'escalateTicket').mockRejectedValue(
+            new ApiError('Conflict', 409, 'Ticket TKT-00009DDD has already been escalated.'),
+        );
+        renderWithApi(<TicketsPanel />, api);
+        await screen.findByRole('row', { name: firstTicket });
+
+        await openDetail(user, firstTicket);
+        await user.click(screen.getByRole('button', { name: 'Escalate to senior staff' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('already been escalated');
+        expect(within(row(firstTicket)).queryByText('Escalated')).toBeNull();
     });
 });

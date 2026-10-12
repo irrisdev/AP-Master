@@ -1,12 +1,10 @@
 import {
-    ComplaintSeverity,
-    ComplaintStatus,
     ConversationStatus,
+    TicketSeverity,
     TicketStatus,
-    complaintSeverityLabel,
-    complaintStatusLabel,
     conversationStatusLabel,
     requestTypeLabel,
+    ticketSeverityLabel,
     ticketStatusLabel,
 } from '../../api/index.ts';
 import type { RequestType } from '../../api/index.ts';
@@ -19,23 +17,17 @@ import type { BadgeTone } from '../ui/Badge.tsx';
  */
 
 const ticketStatusTone: Record<TicketStatus, BadgeTone> = {
+    [TicketStatus.Open]: 'warning',
     [TicketStatus.AwaitingTechnician]: 'warning',
     [TicketStatus.InProgress]: 'info',
     [TicketStatus.Resolved]: 'success',
     [TicketStatus.Closed]: 'neutral',
 };
 
-const complaintStatusTone: Record<ComplaintStatus, BadgeTone> = {
-    [ComplaintStatus.Open]: 'warning',
-    [ComplaintStatus.InProgress]: 'info',
-    [ComplaintStatus.Resolved]: 'success',
-    [ComplaintStatus.Closed]: 'neutral',
-};
-
-const complaintSeverityTone: Record<ComplaintSeverity, BadgeTone> = {
-    [ComplaintSeverity.Low]: 'neutral',
-    [ComplaintSeverity.Medium]: 'warning',
-    [ComplaintSeverity.High]: 'danger',
+const ticketSeverityTone: Record<TicketSeverity, BadgeTone> = {
+    [TicketSeverity.Low]: 'neutral',
+    [TicketSeverity.Medium]: 'warning',
+    [TicketSeverity.High]: 'danger',
 };
 
 const conversationStatusTone: Record<ConversationStatus, BadgeTone> = {
@@ -49,14 +41,10 @@ export function TicketStatusBadge({ status }: { status: TicketStatus }) {
     return <Badge tone={ticketStatusTone[status]}>{ticketStatusLabel[status]}</Badge>;
 }
 
-export function ComplaintStatusBadge({ status }: { status: ComplaintStatus }) {
-    return <Badge tone={complaintStatusTone[status]}>{complaintStatusLabel[status]}</Badge>;
-}
-
-export function ComplaintSeverityBadge({ severity }: { severity: ComplaintSeverity }) {
+export function TicketSeverityBadge({ severity }: { severity: TicketSeverity }) {
     return (
-        <Badge tone={complaintSeverityTone[severity]} label="Severity">
-            {complaintSeverityLabel[severity]}
+        <Badge tone={ticketSeverityTone[severity]} label="Severity">
+            {ticketSeverityLabel[severity]}
         </Badge>
     );
 }
@@ -65,6 +53,7 @@ export function ConversationStatusBadge({ status }: { status: ConversationStatus
     return <Badge tone={conversationStatusTone[status]}>{conversationStatusLabel[status]}</Badge>;
 }
 
+/** Serves for a ticket's type too: a ticket's type is the request type that raised it. */
 export function RequestTypeBadge({ requestType }: { requestType: RequestType }) {
     return <Badge tone="accent">{requestTypeLabel[requestType]}</Badge>;
 }

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { RequestType, isAbort, requestTypeLabel, useApi } from '../../api/index.ts';
 import type { ApiError, ChatResponse, CustomerDto } from '../../api/index.ts';
 import { useAbortSignal } from '../../hooks/useAbortSignal.ts';
@@ -55,6 +55,9 @@ export function ChatView({ customer, onSwitchCustomer }: ChatViewProps) {
     const [sending, setSending] = useState(false);
     const [error, setError] = useState<ApiError | null>(null);
     const [failed, setFailed] = useState<FailedSend | null>(null);
+    // Tickets this conversation already has. A follow-up on an open ticket returns its id
+    // again, and the customer should hear that it was raised once, not on every reply.
+    const knownTickets = useRef(new Set<number>());
 
     function updateStatus(entryId: string, status: TranscriptMessage['status']) {
         setEntries((current) =>
@@ -94,6 +97,8 @@ export function ChatView({ customer, onSwitchCustomer }: ChatViewProps) {
             );
 
             setConversationId(response.conversationId);
+            const notices = outcomeNotices(response, knownTickets.current);
+            if (response.ticketId != null) knownTickets.current.add(response.ticketId);
             setEntries((current) => [
                 ...current.map((entry) =>
                     entry.kind === 'message' && entry.id === entryId
@@ -109,7 +114,7 @@ export function ChatView({ customer, onSwitchCustomer }: ChatViewProps) {
                     status: 'sent',
                     badge: requestTypeLabel[response.requestType],
                 },
-                ...outcomeNotices(response),
+                ...notices,
             ]);
             setFailed(null);
             setSending(false);
@@ -128,6 +133,7 @@ export function ChatView({ customer, onSwitchCustomer }: ChatViewProps) {
     function startNewConversation() {
         setEntries([]);
         setConversationId(null);
+        knownTickets.current = new Set();
         setDraft('');
         setError(null);
         setFailed(null);
@@ -139,7 +145,19 @@ export function ChatView({ customer, onSwitchCustomer }: ChatViewProps) {
         setOpening(true);
         setError(null);
         try {
-            const conversation = await api.getConversation(id, openSignalFor());
+            const signal = openSignalFor();
+            // The tickets are only there to avoid repeating a notice, so failing to read
+            // them must not stop the transcript opening.
+            const [conversation, tickets] = await Promise.all([
+                api.getConversation(id, signal),
+                api.listTickets({ customerId: customer.id }, signal).catch((cause: unknown) => {
+                    if (isAbort(cause)) throw cause;
+                    return [];
+                }),
+            ]);
+            knownTickets.current = new Set(
+                tickets.filter((t) => t.conversationId === id).map((t) => t.id),
+            );
             setEntries(toTranscript(conversation.messages));
             setConversationId(conversation.id);
             setDraft('');
@@ -237,31 +255,45 @@ function initials(name: string): string {
     return (first + last).toUpperCase();
 }
 
-/** Turns the triage outcome into something the customer can actually read. */
-function outcomeNotices(response: ChatResponse): TranscriptEntry[] {
-    const notices: TranscriptEntry[] = [];
+/**
+ * Turns the triage outcome into something the customer can actually read.
+ *
+ * A complaint is a ticket too, so `ticketId` alone does not say which kind was raised:
+ * the request type does. A ticket id already in `known` is a follow-up on an open case
+ * and gets no notice, because nothing new happened.
+ */
+function outcomeNotices(response: ChatResponse, known: ReadonlySet<number>): TranscriptEntry[] {
+    if (response.ticketId == null || known.has(response.ticketId)) return [];
 
-    if (response.ticketId != null) {
-        notices.push({
+    if (response.requestType === RequestType.Complaint) {
+        return [
+            response.escalated
+                ? {
+                      kind: 'notice',
+                      id: nextEntryId('notice'),
+                      tone: 'escalation',
+                      title: 'Complaint logged and escalated',
+                      detail: 'A manager will be in touch within two working days.',
+                  }
+                : {
+                      kind: 'notice',
+                      id: nextEntryId('notice'),
+                      tone: 'info',
+                      title: 'Complaint logged',
+                      detail: 'Our customer service team will review it and be in touch.',
+                  },
+        ];
+    }
+
+    // The server also sets `escalated` when a support ticket is raised; the ticket
+    // notice covers that, since an engineer picking it up is the escalation.
+    return [
+        {
             kind: 'notice',
             id: nextEntryId('notice'),
             tone: 'info',
             title: `Support ticket #${response.ticketId} raised`,
             detail: 'An engineer will pick this up. You can follow it on the agent dashboard.',
-        });
-    }
-
-    // The server also sets `escalated` when a ticket is raised, and the ticket notice
-    // above already covers that; a complaint escalation is a different promise.
-    if (response.escalated && response.requestType === RequestType.Complaint) {
-        notices.push({
-            kind: 'notice',
-            id: nextEntryId('notice'),
-            tone: 'escalation',
-            title: 'Complaint logged and escalated',
-            detail: 'A manager will be in touch within two working days.',
-        });
-    }
-
-    return notices;
+        },
+    ];
 }
