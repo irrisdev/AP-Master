@@ -1,13 +1,12 @@
 import type {
     ChatRequest,
     ChatResponse,
-    ComplaintDto,
-    ComplaintFilter,
     ConversationDetail,
     ConversationSummary,
     CreateCustomerRequest,
     CustomerDto,
     TicketDto,
+    TicketEventHandlers,
     TicketFilter,
     TicketStatus,
 } from './types.ts';
@@ -37,11 +36,14 @@ export interface ApiClient {
     updateTicketStatus(id: number, status: TicketStatus, signal?: AbortSignal): Promise<TicketDto>;
     /** Closing is its own endpoint: a closed ticket cannot be reopened. */
     closeTicket(id: number, signal?: AbortSignal): Promise<TicketDto>;
+    /** Manual escalation to senior staff by an agent. One-way: escalating twice is a 409. */
+    escalateTicket(id: number, signal?: AbortSignal): Promise<TicketDto>;
 
-    listComplaints(filter?: ComplaintFilter, signal?: AbortSignal): Promise<ComplaintDto[]>;
-    getComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto>;
-    /** Manual escalation by an agent. Complaints are only ever created by the chat flow. */
-    escalateComplaint(id: number, signal?: AbortSignal): Promise<ComplaintDto>;
+    /**
+     * Ticket events as they happen (new tickets, status changes, escalations), so the
+     * dashboard stays current without polling. Returns a function that unsubscribes.
+     */
+    subscribeToTickets(handlers: TicketEventHandlers): () => void;
 }
 
 /**
@@ -55,13 +57,22 @@ export class ApiError extends Error {
     readonly status: number;
     readonly detail?: string;
     readonly traceId?: string;
+    /** From a 429's Retry-After header: how long to wait before trying again. */
+    readonly retryAfterSeconds?: number;
 
-    constructor(message: string, status: number, detail?: string, traceId?: string) {
+    constructor(
+        message: string,
+        status: number,
+        detail?: string,
+        traceId?: string,
+        retryAfterSeconds?: number,
+    ) {
         super(message);
         this.name = 'ApiError';
         this.status = status;
         this.detail = detail;
         this.traceId = traceId;
+        this.retryAfterSeconds = retryAfterSeconds;
     }
 
     /** True when retrying the same request might plausibly succeed. */

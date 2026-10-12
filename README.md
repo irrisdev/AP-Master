@@ -7,15 +7,28 @@ provider of broadband, Wi-Fi, home phone lines and the equipment for them.
 
 Customers chat in plain English. The system works out what they need and handles it:
 
-| Request                                               | What happens                                                                                                                                                       |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Enquiry**, e.g. "what packages do you offer?"       | The AI answers in context, using the conversation so far.                                                                                                          |
-| **Technical support**, e.g. "my router won't turn on" | A ticket is raised straight away and staff see it on their dashboard in real time.                                                                                 |
-| **Service issue**, e.g. "my internet keeps dropping"  | The AI gives troubleshooting steps and asks whether they worked. If not, it hands over to a technician with the whole story.                                       |
-| **Complaint**                                         | The assistant asks for details if needed, logs a formal complaint with a `CMP-` reference, and decides severity and escalation by business rules, never by the AI. |
+| Request                                               | What happens                                                                                                                                                                              |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Enquiry**, e.g. "what packages do you offer?"       | The AI answers in context, using the conversation so far.                                                                                                                                 |
+| **Technical support**, e.g. "my router won't turn on" | A ticket is raised straight away and staff see it on their dashboard in real time.                                                                                                        |
+| **Service issue**, e.g. "my internet keeps dropping"  | The AI gives troubleshooting steps and asks whether they worked. If not, it hands over to a technician with the whole story.                                                              |
+| **Complaint**                                         | The assistant asks for details if needed, logs a formal complaint with a `CMP-` reference (severity and escalation are decided by business rules, never by the AI), and ends the session. |
 
-Staff use a dashboard to work the ticket queue, read conversation transcripts, and change status or
-escalate tickets.
+Staff work from a live dashboard:
+- **One ticket queue** for support requests, failed troubleshooting and complaints, with filters by
+  type, status, severity, escalation and customer.
+- **Live updates.** New tickets and other agents' changes appear as they happen, over SignalR.
+- **A queue summary**, and a **detail panel** showing the customer's whole conversation beside the
+  ticket, with the status and escalation actions.
+
+In the chat, customers get:
+- example openers
+- one-tap Yes/No answers to "did that fix it?"
+- the status of any ticket when they reopen a past conversation
+- a clear cooldown if they send too fast
+
+The client runs against the real API, or against an in-memory mock (`VITE_API_MODE=mock`) that
+mirrors the server's behaviour, for demos without a backend.
 
 ---
 
@@ -26,7 +39,7 @@ escalate tickets.
   - [Getting started](#getting-started)
     - [Prerequisites](#prerequisites)
     - [Run locally](#run-locally)
-    - [Run with Docker](#run-with-docker)
+    - [Run with Docker (one command)](#run-with-docker-one-command)
   - [Configuration](#configuration)
   - [API](#api)
   - [Concurrency and reliability](#concurrency-and-reliability)
@@ -116,21 +129,43 @@ npm install
 npm run dev
 ```
 
-The client proxies `/api` to the API, so the browser sees a single origin. Set `VITE_API_MODE=mock`
+The client proxies `/api` and the SignalR hub (`/hubs`) to the API, so the browser sees a single origin. Set `VITE_API_MODE=mock`
 in `ap-master.client/.env.development.local` to run the client without the API.
 
 API documentation is at <http://localhost:5056/scalar> in development.
 
-### Run with Docker
+### Run with Docker (one command)
+
+```bash
+cp .env.example .env    
+docker compose up -d --build
+```
+
+Open <http://localhost:8080>.
+- **One container:** it serves both the API and the built client, runs as a non-root user, and
+  reports readiness at `/health`.
+- **Live mode:** the client is built in live mode, so it talks to the API in the same container.
+- **AI key:** taken from `AI_API_KEY` in `.env` (git-ignored). Leave it empty to use the
+  placeholder AI. `AI_MODEL` and `APP_PORT` can be set there too.
+- **Database:** SQLite, kept in the named volume `telegroup-data` outside the container. It is
+  created, migrated and seeded with the demo customers on first start. It survives rebuilds and
+  `docker compose down`; only `docker compose down -v` deletes it.
+
+Other commands:
+
+| Task                       | Command                        |
+| -------------------------- | ------------------------------ |
+| Logs                       | `docker compose logs -f`       |
+| Rebuild after code changes | `docker compose up -d --build` |
+| Stop, keeping data         | `docker compose down`          |
+| Stop and erase data        | `docker compose down -v`       |
+
+Without Compose:
 
 ```bash
 docker build -f AP-Master.Server/Dockerfile -t telegroup-chatbot .
-docker run -p 8080:8080 -v telegroup-data:/app/data -e AI__ApiKey=<your key> telegroup-chatbot
+docker run -d -p 8080:8080 -v telegroup-data:/app/data -e AI__ApiKey=<your key> telegroup-chatbot
 ```
-
-Then open <http://localhost:8080>. The image serves the built client and the API from one non-root
-container. The database lives on the `telegroup-data` volume and survives restarts. Readiness can be
-checked at `/health`.
 
 ## Configuration
 
@@ -157,19 +192,19 @@ environment variables, using `__` for nesting (e.g. `AI__MaxConcurrentRequests=8
 Every error, including validation failures, is `application/problem+json` with a `traceId` that
 matches the server logs.
 
-| Method         | Route                                                         | Purpose                                                                                                                                                    |
-| -------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST`         | `/api/chat`                                                   | Send a customer message. Omit `conversationId` to start a new conversation. Returns the reply, the request type, and a `ticketId` if a ticket is involved. |
-| `POST`         | `/api/customers`                                              | Register a customer (email unique, case-insensitive).                                                                                                      |
-| `GET`          | `/api/customers/{id}` · `/api/customers/{id}/conversations`   | Customer details and conversation history.                                                                                                                 |
-| `POST` / `GET` | `/api/conversations` · `/api/conversations/{id}`              | Start or read a conversation.                                                                                                                              |
-| `GET`          | `/api/conversations/{id}/messages`                            | Conversation transcript.                                                                                                                                   |
-| `GET`          | `/api/tickets?status=&type=&severity=&escalated=&customerId=` | Staff ticket queue, newest first. Complaints are `type=3`.                                                                                                 |
-| `GET`          | `/api/tickets/{id}`                                           | One ticket.                                                                                                                                                |
-| `PUT`          | `/api/tickets/{id}/status`                                    | Change status. Closed tickets cannot be reopened (409).                                                                                                    |
-| `POST`         | `/api/tickets/{id}/close` · `/api/tickets/{id}/escalate`      | Close, or escalate to senior staff.                                                                                                                        |
-| `WS`           | `/hubs/staff`                                                 | SignalR feed of `TicketCreated` and `TicketUpdated` events for the dashboard.                                                                              |
-| `GET`          | `/health`                                                     | Database and AI-capacity health as JSON.                                                                                                                   |
+| Method         | Route                                                         | Purpose                                                                                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST`         | `/api/chat`                                                   | Send a customer message. Omit `conversationId` to start a new conversation. Returns the reply, the request type, the conversation's status, and the ticket's id and reference when one is involved. A conversation closed by a complaint returns 409. |
+| `POST`         | `/api/customers`                                              | Register a customer (email unique, case-insensitive).                                                                                                                                                                                                 |
+| `GET`          | `/api/customers/{id}` · `/api/customers/{id}/conversations`   | Customer details and conversation history.                                                                                                                                                                                                            |
+| `POST` / `GET` | `/api/conversations` · `/api/conversations/{id}`              | Start or read a conversation.                                                                                                                                                                                                                         |
+| `GET`          | `/api/conversations/{id}/messages`                            | Conversation transcript.                                                                                                                                                                                                                              |
+| `GET`          | `/api/tickets?status=&type=&severity=&escalated=&customerId=` | Staff ticket queue, newest first. Complaints are `type=3`.                                                                                                                                                                                            |
+| `GET`          | `/api/tickets/{id}`                                           | One ticket.                                                                                                                                                                                                                                           |
+| `PUT`          | `/api/tickets/{id}/status`                                    | Change status. Closed tickets cannot be reopened (409).                                                                                                                                                                                               |
+| `POST`         | `/api/tickets/{id}/close` · `/api/tickets/{id}/escalate`      | Close, or escalate to senior staff.                                                                                                                                                                                                                   |
+| `WS`           | `/hubs/staff`                                                 | SignalR feed of `TicketCreated` and `TicketUpdated` events for the dashboard.                                                                                                                                                                         |
+| `GET`          | `/health`                                                     | Database and AI-capacity health as JSON.                                                                                                                                                                                                              |
 
 ## Concurrency and reliability
 
@@ -194,15 +229,15 @@ simultaneous customers needing 46 s of AI time were served in 1.9 s, and with th
 ## Testing
 
 ```bash
-dotnet test AP-Server-Tests              # 133 server tests: unit + integration
-cd ap-master.client && npm test          # 124 client tests
+dotnet test AP-Server-Tests              # 139 server tests: unit + integration
+cd ap-master.client && npm test          # 151 client tests
 ```
 
 | Suite                                                                          | Count | Coverage                                                                            |
 | ------------------------------------------------------------------------------ | ----- | ----------------------------------------------------------------------------------- |
-| Server unit tests: workflows, ticket rules, classifier, concurrency primitives | 113   | 90.4 % of lines and 84.1 % of branches on the server, generated migrations excluded |
-| Server integration tests: real HTTP pipeline, database, rate limiting, SignalR | 20    | (included above)                                                                    |
-| Client tests: components, API client, mock, classifier port                    | 124   | 85 % of statements                                                                  |
+| Server unit tests: workflows, ticket rules, classifier, concurrency primitives | 118   | 90.5 % of lines and 83.5 % of branches on the server, generated migrations excluded |
+| Server integration tests: real HTTP pipeline, database, rate limiting, SignalR | 21    | (included above)                                                                    |
+| Client tests: chat, ticket queue, live updates, API client, mock, classifier   | 151   | 86.4 % of statements                                                                |
 
 CI runs every suite on each push, then builds the Docker image and smoke-tests it.
 - [Test strategy and traceability to user stories](docs/testing/test-strategy.md)
@@ -252,7 +287,7 @@ AP-Master.Server/          ASP.NET Core API
 AP-Server-Tests/           xUnit tests: Unit/, Integration/, TestSupport/
 ap-master.client/          React + TypeScript client (chat and staff dashboard)
 tools/load_test.py         load test used for docs/testing/load-test.md
-docs/                      testing evidence, frontend handoff
+docs/                      testing evidence
 class-diagram.drawio/.png  domain class diagram
 schema.dbml                database schema (for dbdiagram.io)
 ```

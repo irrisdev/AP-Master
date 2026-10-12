@@ -171,6 +171,23 @@ public class ApiTests : IClassFixture<TelegroupApiFactory>
         Assert.NotNull(complaint.Severity);
     }
 
+    [Fact]
+    public async Task Chat_AfterAComplaintIsLogged_TheConversationIsClosed()
+    {
+        var customer = await _client.CreateCustomerAsync();
+        var complaint = await _client.ChatAsync(customer.Id, "I want to complain, I was charged twice on my bill");
+
+        Assert.Equal(ConversationStatus.Closed, complaint.ConversationStatus);
+        Assert.StartsWith("CMP-", complaint.TicketReference);
+
+        var followUp = await _client.PostChatAsync(customer.Id, "Hello again", complaint.ConversationId);
+        await followUp.AssertProblemAsync(HttpStatusCode.Conflict);
+
+        // A new conversation works as normal.
+        var fresh = await _client.ChatAsync(customer.Id, "What are your opening hours?");
+        Assert.NotEqual(complaint.ConversationId, fresh.ConversationId);
+    }
+
     // ---------------------------------------------------------------- staff ticket workflow
 
     [Fact]

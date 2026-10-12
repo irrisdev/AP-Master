@@ -246,7 +246,8 @@ public class TicketService : ITicketService
         if (text.Contains("internet") || text.Contains("broadband"))
             return "Service";
 
-        if (text.Contains("technician") || text.Contains("technical"))
+        if (text.Contains("technician") || text.Contains("technical") || text.Contains("engineer") ||
+            text.Contains("router") || text.Contains("install"))
             return "Technical Support";
 
         return "General";

@@ -34,7 +34,7 @@ function App() {
             </a>
 
             <header className="app-header">
-                <div className="app-header__inner">
+                <div className={`app-header__inner ${view === 'dashboard' ? 'app-wide' : ''}`.trim()}>
                     <div className="brand">
                         <span className="brand__mark" aria-hidden="true">
                             T
@@ -67,7 +67,8 @@ function App() {
                 </div>
             </header>
 
-            <main className="app-main" id="main">
+            {/* The dashboard is a working screen full of tables, so it gets more width than the chat. */}
+            <main className={`app-main ${view === 'dashboard' ? 'app-wide' : ''}`.trim()} id="main">
                 {view === 'dashboard' ? (
                     <DashboardView customerId={customer?.id} />
                 ) : customer ? (

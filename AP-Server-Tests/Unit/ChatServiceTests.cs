@@ -82,6 +82,8 @@ public class ChatServiceTests : IDisposable
         Assert.Equal(RequestType.TechnicalSupport, ticket.Type);
         Assert.Equal(TicketStatus.AwaitingTechnician, ticket.Status);
         Assert.Contains(ticket.Reference, response.Message);
+        Assert.Equal(ticket.Reference, response.TicketReference);
+        Assert.Equal(ConversationStatus.Escalated, response.ConversationStatus);
         Assert.Equal(ConversationStatus.Escalated, (await LoadConversationAsync(response.ConversationId)).Status);
         Assert.Single(_harness.Notifier.Created);
     }
@@ -189,8 +191,32 @@ public class ChatServiceTests : IDisposable
         Assert.Equal(TicketStatus.Open, ticket.Status);
         Assert.Equal("Billing", ticket.Category);
         Assert.Equal(ticket.Id, logged.TicketId);
+        Assert.Equal(ticket.Reference, logged.TicketReference);
         Assert.Contains(ticket.Reference, logged.Message);
         Assert.StartsWith("CMP-", ticket.Reference);
+    }
+
+    [Theory]
+    [InlineData("The engineer missed two appointments and nobody called")]
+    [InlineData("My broadband keeps dropping out and nobody has fixed it in a month")]
+    public async Task Complaint_DetailsThatMentionAFault_AreLoggedAsTheComplaint_NotANewTicket(string details)
+    {
+        var ask = await _harness.SendAsync("I want to make a complaint");
+        var logged = await _harness.SendAsync(details, ask.ConversationId);
+
+        Assert.Equal(RequestType.Complaint, logged.RequestType);
+        var ticket = Assert.Single(await LoadTicketsAsync(ask.ConversationId));
+        Assert.Equal(RequestType.Complaint, ticket.Type);
+    }
+
+    [Fact]
+    public async Task Complaint_CustomerChangesTheirMindWithAQuestion_IsAnswered()
+    {
+        var ask = await _harness.SendAsync("I want to make a complaint");
+        var answered = await _harness.SendAsync("Actually, what are your opening hours?", ask.ConversationId);
+
+        Assert.Equal(RequestType.CustomerEnquiry, answered.RequestType);
+        Assert.Empty(await LoadTicketsAsync(ask.ConversationId));
     }
 
     [Fact]
@@ -207,13 +233,25 @@ public class ChatServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Complaint_FollowUp_DoesNotLogASecondComplaint()
+    public async Task Complaint_OnceLogged_EndsTheSession()
     {
-        var first = await _harness.SendAsync("I want to complain, the engineer was rude to me");
-        var second = await _harness.SendAsync("This is unacceptable, I want to complain again", first.ConversationId);
+        var logged = await _harness.SendAsync("I want to complain, the engineer was rude to me");
 
-        Assert.Equal(first.TicketId, second.TicketId);
-        Assert.Single(await LoadTicketsAsync(first.ConversationId));
+        Assert.Equal(ConversationStatus.Closed, logged.ConversationStatus);
+        Assert.Equal(ConversationStatus.Closed, (await LoadConversationAsync(logged.ConversationId)).Status);
+        Assert.Contains("This conversation is now closed", logged.Message);
+    }
+
+    [Fact]
+    public async Task EndedConversation_RefusesFurtherMessages_WithoutLoggingAnotherComplaint()
+    {
+        var logged = await _harness.SendAsync("I want to complain, the engineer was rude to me");
+
+        var error = await Assert.ThrowsAsync<ConflictException>(() =>
+            _harness.SendAsync("This is unacceptable, I want to complain again", logged.ConversationId));
+
+        Assert.Contains("start a new conversation", error.Message);
+        Assert.Single(await LoadTicketsAsync(logged.ConversationId));
     }
 
     // ---------------------------------------------------------------- validation and ownership

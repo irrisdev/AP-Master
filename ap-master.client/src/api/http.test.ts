@@ -179,17 +179,66 @@ describe('HttpApiClient error handling', () => {
         );
     });
 
-    it('passes a false escalated filter rather than dropping it', async () => {
-        // `if (filter.escalated)` would silently lose "not escalated".
+    it('passes a false escalated filter and a zero severity rather than dropping them', async () => {
+        // `if (filter.escalated)` would silently lose "not escalated", and Low severity is 0.
         const fetchSpy = vi.fn(() => Promise.resolve(Response.json([])));
         vi.stubGlobal('fetch', fetchSpy);
 
-        await new HttpApiClient().listComplaints({ escalated: false });
+        await new HttpApiClient().listTickets({ type: 3, severity: 0, escalated: false });
 
         expect(fetchSpy).toHaveBeenLastCalledWith(
-            '/api/complaints?escalated=false',
+            '/api/tickets?type=3&severity=0&escalated=false',
             expect.anything(),
         );
+    });
+
+    it('reads ticket timestamps as UTC', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(() =>
+                Promise.resolve(
+                    Response.json([{ id: 1, createdAt: '2026-10-12T09:00:00', updatedAt: '2026-10-12T09:05:00' }]),
+                ),
+            ),
+        );
+
+        const [ticket] = await new HttpApiClient().listTickets();
+
+        expect(ticket.createdAt).toBe('2026-10-12T09:00:00Z');
+        expect(ticket.updatedAt).toBe('2026-10-12T09:05:00Z');
+    });
+
+    it('escalates with a POST to the ticket', async () => {
+        const fetchSpy = vi.fn(() => Promise.resolve(Response.json({ id: 4, createdAt: 'x', updatedAt: 'x' })));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        await new HttpApiClient().escalateTicket(4);
+
+        expect(fetchSpy).toHaveBeenLastCalledWith(
+            '/api/tickets/4/escalate',
+            expect.objectContaining({ method: 'POST' }),
+        );
+    });
+
+    it('reads Retry-After from a 429 so the UI can say when to try again', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(() =>
+                Promise.resolve(
+                    Response.json(
+                        { title: 'Too many requests', status: 429, detail: 'Slow down.', traceId: 't-1' },
+                        { status: 429, headers: { 'Retry-After': '12' } },
+                    ),
+                ),
+            ),
+        );
+
+        const error = await new HttpApiClient()
+            .sendMessage({ customerId: 1, message: 'x' })
+            .catch((cause: unknown) => cause);
+
+        expect(error).toMatchObject({ status: 429, retryAfterSeconds: 12, detail: 'Slow down.' });
+        expect((error as ApiError).isRetryable).toBe(true);
     });
 
     it('uses PUT for a ticket status change, as the server expects', async () => {

@@ -51,7 +51,7 @@ describe('App shell', () => {
             'My broadband keeps dropping out and is very slow',
         );
         await user.click(screen.getByRole('button', { name: 'Send' }));
-        await screen.findByText(/checking the network status/i);
+        await screen.findByText(/Here are a few things to try/i);
 
         await user.click(screen.getByRole('button', { name: 'Dashboard' }));
         await user.click(screen.getByRole('tab', { name: 'Conversations' }));
