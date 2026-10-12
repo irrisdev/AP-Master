@@ -28,6 +28,9 @@ public interface IComplaintService
 
     /// <summary>The newest complaint in this conversation that is still Open or InProgress, if any.</summary>
     Task<Complaint?> GetOpenForConversationAsync(int conversationId, CancellationToken cancellationToken = default);
+
+    /// <summary>Whether any complaint, in any status, has been logged in this conversation.</summary>
+    Task<bool> AnyForConversationAsync(int conversationId, CancellationToken cancellationToken = default);
 }
 
 public class ComplaintService : IComplaintService
@@ -40,6 +43,9 @@ public class ComplaintService : IComplaintService
         _context = context;
         _logger = logger;
     }
+
+    public Task<bool> AnyForConversationAsync(int conversationId, CancellationToken cancellationToken = default) =>
+        _context.Complaints.AnyAsync(c => c.ConversationId == conversationId, cancellationToken);
 
     public Task<Complaint?> GetOpenForConversationAsync(int conversationId, CancellationToken cancellationToken = default) =>
         _context.Complaints

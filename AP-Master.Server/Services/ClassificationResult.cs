@@ -15,7 +15,10 @@ public enum ClassificationSource
     Default,
 
     /// <summary>A follow-up the rules were unsure about, so it stayed with the conversation's current topic.</summary>
-    Context
+    Context,
+
+    /// <summary>The AI judged the message to have nothing to do with Telegroup; answered as an enquiry, no action taken.</summary>
+    OutOfScope
 }
 
 /// <param name="Confidence">0 to 1 for rule-based results; null when the AI decided.</param>

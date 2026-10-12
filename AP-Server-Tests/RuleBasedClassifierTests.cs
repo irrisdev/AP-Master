@@ -158,6 +158,50 @@ public class ClassificationServiceTests
     }
 
     [Fact]
+    public async Task ClassifyAsync_AISaysOutOfScope_ReturnsEnquiryWithNoAction()
+    {
+        var ai = new FakeAIService("OutOfScope");
+
+        var result = await CreateService(ai).ClassifyAsync("my toilet is broken");
+
+        Assert.Equal(RequestType.CustomerEnquiry, result.RequestType);
+        Assert.Equal(ClassificationSource.OutOfScope, result.Source);
+    }
+
+    [Fact]
+    public async Task ClassifyAsync_WeakActionSignalWithAIUnavailable_DoesNotRaiseTicket()
+    {
+        // "broken" alone is a weak TechnicalSupport signal (confidence 0.33).
+        var ai = new FakeAIService(null);
+
+        var result = await CreateService(ai).ClassifyAsync("my toilet is broken");
+
+        Assert.Equal(RequestType.CustomerEnquiry, result.RequestType);
+    }
+
+    [Fact]
+    public async Task ClassifyFollowUpAsync_UnclearReply_StaysOnCurrentTopicWithoutCallingAI()
+    {
+        var ai = new FakeAIService("Complaint");
+
+        var result = await CreateService(ai).ClassifyFollowUpAsync("yea but you dont know the issue yet", RequestType.ServiceIssue);
+
+        Assert.Equal(RequestType.ServiceIssue, result.RequestType);
+        Assert.Equal(ClassificationSource.Context, result.Source);
+        Assert.Equal(0, ai.CallCount);
+    }
+
+    [Fact]
+    public async Task ClassifyFollowUpAsync_QuestionAboutExistingComplaint_IsNotANewComplaint()
+    {
+        var ai = new FakeAIService(null);
+
+        var result = await CreateService(ai).ClassifyFollowUpAsync("can you remember what my complaint was", RequestType.CustomerEnquiry);
+
+        Assert.Equal(RequestType.CustomerEnquiry, result.RequestType);
+    }
+
+    [Fact]
     public async Task ClassifyAsync_TieWithAIUnavailable_KeepsRuleTieBreak()
     {
         var ai = new FakeAIService(null);
@@ -166,5 +210,26 @@ public class ClassificationServiceTests
 
         Assert.Equal(RequestType.Complaint, result.RequestType);
         Assert.Equal(1, ai.CallCount);
+    }
+}
+public class ComplaintDetailsTests
+{
+    [Theory]
+    [InlineData("i want to make a complain")]
+    [InlineData("I'd like to make a complaint please")]
+    [InlineData("complaint")]
+    [InlineData("hi, I want to complain")]
+    public void HasDetails_IntentOnly_ReturnsFalse(string message)
+    {
+        Assert.False(ComplaintDetails.HasDetails(message));
+    }
+
+    [Theory]
+    [InlineData("your service is terrible")]
+    [InlineData("I want to complain about my bill")]
+    [InlineData("the engineer never turned up")]
+    public void HasDetails_DescribesProblem_ReturnsTrue(string message)
+    {
+        Assert.True(ComplaintDetails.HasDetails(message));
     }
 }
