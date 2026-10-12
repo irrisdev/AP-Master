@@ -12,7 +12,11 @@
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
-
+*.idea
+*.env.development
+*.db
+*.db-shm
+*.db-wal
 # Mono auto generated files
 mono_crash.*
 
