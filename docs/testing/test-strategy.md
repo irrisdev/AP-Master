@@ -1,19 +1,22 @@
 # Test strategy and evidence
 
+For results, evaluation, limitations and next steps, see [evaluation.md](evaluation.md).
+
 Four levels of testing, each answering a different question. All automated suites run on every push
 in GitHub Actions ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)).
 
 | Level | Question it answers | Tooling | Where | Count |
 |---|---|---|---|---|
-| Unit | Does each class follow its rules in isolation? | xUnit; SQLite in-memory; fake AI | `AP-Server-Tests/Unit`, `AP-Server-Tests/*.cs` | 118 server tests |
+| Unit | Does each class follow its rules in isolation? | xUnit; SQLite in-memory; fake AI | `AP-Server-Tests/Unit`, `AP-Server-Tests/*.cs` | 149 server tests |
 | Integration | Does the running application behave correctly over HTTP? | xUnit + `WebApplicationFactory` (the real pipeline, EF Core, rate limiting, SignalR) | `AP-Server-Tests/Integration` | 21 server tests |
-| Client | Do the UI components and API client behave correctly? | Vitest + Testing Library | `ap-master.client/src/**/*.test.ts(x)` | 151 client tests |
+| Client | Do the UI components and API client behave correctly? | Vitest + Testing Library | `ap-master.client/src/**/*.test.ts(x)` | 152 client tests |
 | System | Does the built container start and answer a chat message? | Docker + curl, in CI | `docker` job in `ci.yml` | smoke test |
 | Load | Is concurrency controlled under simultaneous users? | `tools/load_test.py` | [load-test.md](load-test.md) | 4 scenarios |
+| Real-AI scenarios | Does the live model behave as the design assumes? | `tools/ai_smoke_test.py` | [evaluation.md](evaluation.md) § 2.3 | 16 checks |
 | Acceptance | Does it meet the user stories for a real user? | Manual script | [user-acceptance-tests.md](user-acceptance-tests.md) | 12 cases |
 
 Coverage, measured by Coverlet over hand-written code with generated migrations excluded:
-- **Server:** 90.5 % of lines and 83.5 % of branches.
+- **Server:** 94.6 % of lines and 82.6 % of branches.
 - **Client:** 86.4 % of statements.
 
 ## Running the tests

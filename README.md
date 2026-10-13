@@ -230,17 +230,18 @@ simultaneous customers needing 46 s of AI time were served in 1.9 s, and with th
 ## Testing
 
 ```bash
-dotnet test AP-Server-Tests              # 139 server tests: unit + integration
-cd ap-master.client && npm test          # 151 client tests
+dotnet test AP-Server-Tests              # 170 server tests: unit + integration
+cd ap-master.client && npm test          # 152 client tests
 ```
 
 | Suite                                                                          | Count | Coverage                                                                            |
 | ------------------------------------------------------------------------------ | ----- | ----------------------------------------------------------------------------------- |
-| Server unit tests: workflows, ticket rules, classifier, concurrency primitives | 118   | 90.5 % of lines and 83.5 % of branches on the server, generated migrations excluded |
+| Server unit tests: workflows, ticket rules, classifier, concurrency primitives | 149   | 94.6 % of lines and 82.6 % of branches on the server, generated migrations excluded |
 | Server integration tests: real HTTP pipeline, database, rate limiting, SignalR | 21    | (included above)                                                                    |
-| Client tests: chat, ticket queue, live updates, API client, mock, classifier   | 151   | 86.4 % of statements                                                                |
+| Client tests: chat, ticket queue, live updates, API client, mock, classifier   | 152   | 86.4 % of statements                                                                |
 
 CI runs every suite on each push, then builds the Docker image and smoke-tests it.
+- [Testing and evaluation: results, limitations, next steps](docs/testing/evaluation.md)
 - [Test strategy and traceability to user stories](docs/testing/test-strategy.md)
 - [Load test](docs/testing/load-test.md)
 - [User acceptance test script](docs/testing/user-acceptance-tests.md)
