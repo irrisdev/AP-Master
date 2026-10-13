@@ -1,5 +1,7 @@
 ﻿using AP_Master.Server.Properties;
+using AP_Master.Server.Concurrency;
 using AP_Master.Server.DTOs.Chat;
+using AP_Master.Server.Exceptions;
 using AP_Master.Server.Enums;
 using AP_Master.Server.Models;
 
@@ -37,6 +39,12 @@ public class ChatService : IChatService
         Write in plain text without markdown formatting.
         """;
 
+    /// <summary>
+    /// How long a message waits for the previous message in the same conversation to finish.
+    /// Longer than the worst-case turn (a classification call plus a reply call, each with a 30 s AI timeout).
+    /// </summary>
+    private static readonly TimeSpan ConversationLockTimeout = TimeSpan.FromSeconds(90);
+
     private readonly ICustomerService _customerService;
     private readonly IConversationService _conversationService;
     private readonly IMessageService _messageService;
@@ -44,6 +52,7 @@ public class ChatService : IChatService
     private readonly ITicketService _ticketService;
     private readonly IAIService _aiService;
     private readonly ITroubleshootingOutcomeDetector _outcomeDetector;
+    private readonly ConversationLocks _conversationLocks;
     private readonly ILogger<ChatService> _logger;
 
     public ChatService(
@@ -54,6 +63,7 @@ public class ChatService : IChatService
         ITicketService ticketService,
         IAIService aiService,
         ITroubleshootingOutcomeDetector outcomeDetector,
+        ConversationLocks conversationLocks,
         ILogger<ChatService> logger)
     {
         _customerService = customerService;
@@ -63,6 +73,7 @@ public class ChatService : IChatService
         _ticketService = ticketService;
         _aiService = aiService;
         _outcomeDetector = outcomeDetector;
+        _conversationLocks = conversationLocks;
         _logger = logger;
     }
 
@@ -74,20 +85,31 @@ public class ChatService : IChatService
         await _customerService.EnsureExistsAsync(request.CustomerId, cancellationToken);
         var content = _messageService.ValidateCustomerContent(request.Message);
 
-        // 2. Load the customer's conversation (ownership checked) or start a new one.
-        Conversation conversation;
-        RequestType? newConversationType = null;
-
-        if (request.ConversationId is int conversationId)
+        // 2. Start a new conversation. Its ID isn't known to anyone else yet, so no lock is needed.
+        if (request.ConversationId is not int conversationId)
         {
-            conversation = await _conversationService.GetOwnedAsync(request.CustomerId, conversationId, cancellationToken);
-        }
-        else
-        {
-            newConversationType = (await _classificationService.ClassifyAsync(content, cancellationToken)).RequestType;
-            conversation = await _conversationService.StartAsync(request.CustomerId, newConversationType.Value, cancellationToken);
+            var newConversationType = (await _classificationService.ClassifyAsync(content, cancellationToken)).RequestType;
+            var started = await _conversationService.StartAsync(request.CustomerId, newConversationType, cancellationToken);
+            return await ProcessTurnAsync(started, content, newConversationType, cancellationToken);
         }
 
+        // Or continue an existing one. Turns in the same conversation run one at a time, so two messages
+        // sent at once can't both decide "no open ticket yet" and raise two. The conversation is loaded
+        // after the lock is taken, so this turn sees everything the previous one saved.
+        using var turn = await _conversationLocks.TryAcquireAsync(conversationId, ConversationLockTimeout, cancellationToken)
+            ?? throw new ConflictException("Your previous message is still being processed. Please wait for the reply and try again.");
+
+        var conversation = await _conversationService.GetOwnedAsync(request.CustomerId, conversationId, cancellationToken);
+
+        if (conversation.Status == ConversationStatus.Closed)
+            throw new ConflictException("This conversation has ended. Please start a new conversation.");
+
+        return await ProcessTurnAsync(conversation, content, newConversationType: null, cancellationToken);
+    }
+
+    private async Task<ChatResponse> ProcessTurnAsync(
+        Conversation conversation, string content, RequestType? newConversationType, CancellationToken cancellationToken)
+    {
         var wasTroubleshooting = conversation.Status == ConversationStatus.Troubleshooting;
 
         // 3. Always record the customer's message.
@@ -112,8 +134,7 @@ public class ChatService : IChatService
         }
 
         // 5. Classify and route. Follow-ups stay with the current topic unless they are clearly about something new.
-        var requestType = newConversationType
-                          ?? (await _classificationService.ClassifyFollowUpAsync(content, await FollowUpTopicAsync(conversation, cancellationToken), cancellationToken)).RequestType;
+        var requestType = newConversationType ?? await RouteFollowUpAsync(conversation, content, cancellationToken);
         _logger.LogInformation("Routing message in conversation {ConversationId} as {RequestType}",
             conversation.Id, requestType);
 
@@ -138,6 +159,22 @@ public class ChatService : IChatService
             RequestType.Complaint => await HandleComplaintAsync(conversation, content, cancellationToken),
             _ => throw new InvalidOperationException($"Unsupported request type: {requestType}.")
         };
+    }
+
+    /// <summary>
+    /// Routes a message in an existing conversation. When we've asked what a complaint is about, the reply
+    /// is the complaint even if it mentions an engineer, a router or a slow connection; only a clear
+    /// question (the customer changing their mind) is routed elsewhere.
+    /// </summary>
+    private async Task<RequestType> RouteFollowUpAsync(Conversation conversation, string content, CancellationToken cancellationToken)
+    {
+        var topic = await FollowUpTopicAsync(conversation, cancellationToken);
+        var classified = (await _classificationService.ClassifyFollowUpAsync(content, topic, cancellationToken)).RequestType;
+
+        var awaitingComplaintDetails = topic == RequestType.Complaint;
+        return awaitingComplaintDetails && classified != RequestType.CustomerEnquiry
+            ? RequestType.Complaint
+            : classified;
     }
 
     /// <summary>
@@ -182,7 +219,7 @@ public class ChatService : IChatService
         // Keep an escalated conversation escalated; a follow-up question doesn't undo the escalation.
         var status = conversation.Status == ConversationStatus.Escalated ? ConversationStatus.Escalated : ConversationStatus.Active;
         await _conversationService.UpdateStateAsync(conversation, status, RequestType.CustomerEnquiry, cancellationToken);
-        return await ReplyAsync(conversation, RequestType.CustomerEnquiry, reply, escalated: false, ticketId: null, cancellationToken);
+        return await ReplyAsync(conversation, RequestType.CustomerEnquiry, reply, escalated: false, ticket: null, cancellationToken);
     }
 
     private async Task<ChatResponse> HandleTechnicalSupportAsync(Conversation conversation, string message, CancellationToken cancellationToken)
@@ -216,7 +253,7 @@ public class ChatService : IChatService
             "A technician will review it and contact you to arrange the next steps. They can see everything you've " +
             "said in this chat, so feel free to add any more details here.";
 
-        return await ReplyAsync(conversation, RequestType.TechnicalSupport, reply, escalated: true, ticketId: ticket.Id, cancellationToken);
+        return await ReplyAsync(conversation, RequestType.TechnicalSupport, reply, escalated: true, ticket: ticket, cancellationToken);
     }
 
     private async Task<ChatResponse> HandleServiceIssueAsync(Conversation conversation, string message, CancellationToken cancellationToken)
@@ -258,14 +295,14 @@ public class ChatService : IChatService
                 question = "Sorry to hear you're having a problem. Could you tell me what's happening with your service?";
 
             await _conversationService.UpdateStateAsync(conversation, ConversationStatus.Active, RequestType.ServiceIssue, cancellationToken);
-            return await ReplyAsync(conversation, RequestType.ServiceIssue, question, escalated: false, ticketId: null, cancellationToken);
+            return await ReplyAsync(conversation, RequestType.ServiceIssue, question, escalated: false, ticket: null, cancellationToken);
         }
 
         var reply = steps +
             "\n\nDid that fix the problem? Let me know - if it's still not working, I'll raise a support ticket for you.";
 
         await _conversationService.UpdateStateAsync(conversation, ConversationStatus.Troubleshooting, RequestType.ServiceIssue, cancellationToken);
-        return await ReplyAsync(conversation, RequestType.ServiceIssue, reply, escalated: false, ticketId: null, cancellationToken);
+        return await ReplyAsync(conversation, RequestType.ServiceIssue, reply, escalated: false, ticket: null, cancellationToken);
     }
 
     private async Task<ChatResponse> HandleIssueResolvedAsync(Conversation conversation, CancellationToken cancellationToken)
@@ -273,7 +310,7 @@ public class ChatService : IChatService
         await _conversationService.UpdateStateAsync(conversation, ConversationStatus.Resolved, cancellationToken: cancellationToken);
 
         const string reply = "Great, I'm glad that's sorted. If anything else comes up, just send another message.";
-        return await ReplyAsync(conversation, RequestType.ServiceIssue, reply, escalated: false, ticketId: null, cancellationToken);
+        return await ReplyAsync(conversation, RequestType.ServiceIssue, reply, escalated: false, ticket: null, cancellationToken);
     }
 
     private async Task<ChatResponse> HandleIssueNotResolvedAsync(Conversation conversation, CancellationToken cancellationToken)
@@ -300,7 +337,7 @@ public class ChatService : IChatService
                 "Could you tell me what happened? For example, what went wrong, when it happened, and what you'd like " +
                 "us to do to put it right.";
 
-            return await ReplyAsync(conversation, RequestType.Complaint, askForDetails, escalated: false, ticketId: null, cancellationToken);
+            return await ReplyAsync(conversation, RequestType.Complaint, askForDetails, escalated: false, ticket: null, cancellationToken);
         }
 
         const string systemPrompt = $"""
@@ -322,8 +359,9 @@ public class ChatService : IChatService
 
         var complaint = await _ticketService.CreateTicketAsync(conversation.CustomerId, conversation.Id, RequestType.Complaint, message, cancellationToken);
 
-        var status = complaint.Escalated ? ConversationStatus.Escalated : ConversationStatus.Active;
-        await _conversationService.UpdateStateAsync(conversation, status, RequestType.Complaint, cancellationToken);
+        // Logging the complaint ends the session: the complaint is now with staff, who can see this
+        // conversation, and the customer starts a new one for anything else.
+        await _conversationService.UpdateStateAsync(conversation, ConversationStatus.Closed, RequestType.Complaint, cancellationToken);
 
         // Confirm the complaint is logged; never claim it has been resolved.
         var opening = acknowledgement.Text ?? "I'm really sorry to hear about this, and I understand why you're unhappy.";
@@ -334,10 +372,10 @@ public class ChatService : IChatService
         var reply =
             $"{opening}\n\n" +
             $"I've logged this as a formal complaint. Your reference is {complaint.Reference}. {nextSteps} " +
-            "If there's anything else you'd like them to know, such as dates, account details or what you'd like us " +
-            "to do to put things right, just reply here.";
+            "The team can see everything you've said here. This conversation is now closed; if there's anything " +
+            "else you need, start a new conversation and quote your reference.";
 
-        return await ReplyAsync(conversation, RequestType.Complaint, reply, complaint.Escalated, ticketId: complaint.Id, cancellationToken);
+        return await ReplyAsync(conversation, RequestType.Complaint, reply, complaint.Escalated, ticket: complaint, cancellationToken);
     }
 
     private async Task<ChatResponse> HandleOpenComplaintFollowUpAsync(Conversation conversation, SupportTicket complaint, CancellationToken cancellationToken)
@@ -355,7 +393,7 @@ public class ChatService : IChatService
             "can see everything you've said in this conversation.";
 
         return await ReplyToOpenCaseAsync(conversation, RequestType.Complaint, caseSummary, fallback,
-            complaint.Escalated, ticketId: complaint.Id, cancellationToken);
+            complaint.Escalated, ticket: complaint, cancellationToken);
     }
 
     private async Task<ChatResponse> HandleOpenTicketFollowUpAsync(Conversation conversation, SupportTicket ticket, CancellationToken cancellationToken)
@@ -373,13 +411,13 @@ public class ChatService : IChatService
             "everything you've said in this conversation. They'll be in touch shortly.";
 
         return await ReplyToOpenCaseAsync(conversation, conversation.RequestType, caseSummary, fallback,
-            escalated: true, ticketId: ticket.Id, cancellationToken);
+            escalated: true, ticket: ticket, cancellationToken);
     }
 
     /// <summary>Answers a follow-up about an existing complaint or support ticket using the conversation so far.</summary>
     private async Task<ChatResponse> ReplyToOpenCaseAsync(
         Conversation conversation, RequestType requestType, string caseSummary, string fallback,
-        bool escalated, int? ticketId, CancellationToken cancellationToken)
+        bool escalated, SupportTicket? ticket, CancellationToken cancellationToken)
     {
         var systemPrompt = $"""
             You are the Telegroup Limited customer service assistant.
@@ -394,7 +432,7 @@ public class ChatService : IChatService
             """;
 
         var reply = await TryGenerateChatReplyAsync(conversation.Id, systemPrompt, cancellationToken) ?? fallback;
-        return await ReplyAsync(conversation, requestType, reply, escalated, ticketId, cancellationToken);
+        return await ReplyAsync(conversation, requestType, reply, escalated, ticket, cancellationToken);
     }
 
     // ---------------------------------------------------------------- helpers
@@ -412,7 +450,7 @@ public class ChatService : IChatService
         var reply = $"{replyOpening} (reference {ticket.Reference}) with our technical team, including the details you've given me. " +
                     "They'll be in touch shortly.";
 
-        return await ReplyAsync(conversation, RequestType.ServiceIssue, reply, escalated: true, ticketId: ticket.Id, cancellationToken);
+        return await ReplyAsync(conversation, RequestType.ServiceIssue, reply, escalated: true, ticket: ticket, cancellationToken);
     }
 
     private sealed record Acknowledgement(string? Text, bool OutOfScope);
@@ -445,7 +483,7 @@ public class ChatService : IChatService
 
         var status = conversation.Status == ConversationStatus.Escalated ? ConversationStatus.Escalated : ConversationStatus.Active;
         await _conversationService.UpdateStateAsync(conversation, status, RequestType.CustomerEnquiry, cancellationToken);
-        return await ReplyAsync(conversation, RequestType.CustomerEnquiry, reply, escalated: false, ticketId: null, cancellationToken);
+        return await ReplyAsync(conversation, RequestType.CustomerEnquiry, reply, escalated: false, ticket: null, cancellationToken);
     }
 
     private static string StripMarkers(string text) => text
@@ -492,21 +530,19 @@ public class ChatService : IChatService
 
     private async Task<ChatResponse> ReplyAsync(
         Conversation conversation, RequestType requestType, string reply,
-        bool escalated, int? ticketId, CancellationToken cancellationToken)
+        bool escalated, SupportTicket? ticket, CancellationToken cancellationToken)
     {
         await _messageService.AddAssistantMessageAsync(conversation.Id, reply, cancellationToken);
 
-        var response = new ChatResponse
+        return new ChatResponse
         {
             ConversationId = conversation.Id,
+            ConversationStatus = conversation.Status,
             RequestType = requestType,
             Message = reply,
-            Escalated = escalated
+            Escalated = escalated,
+            TicketId = ticket?.Id,
+            TicketReference = ticket?.Reference
         };
-
-        if (ticketId.HasValue)
-            response.TicketId = ticketId.Value;
-
-        return response;
     }
 }

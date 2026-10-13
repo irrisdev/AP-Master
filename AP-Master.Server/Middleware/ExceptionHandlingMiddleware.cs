@@ -1,5 +1,4 @@
 using AP_Master.Server.Exceptions;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace AP_Master.Server.Middleware;
@@ -57,25 +56,13 @@ public class ExceptionHandlingMiddleware
         }
     }
 
-    private static async Task WriteProblemAsync(HttpContext context, int status, string title, string detail)
+    private static Task WriteProblemAsync(HttpContext context, int status, string title, string detail)
     {
         if (context.Response.HasStarted)
-        {
-            return;
-        }
+            return Task.CompletedTask;
 
+        // Discard anything a handler set before it failed (headers, partial content type).
         context.Response.Clear();
-        context.Response.StatusCode = status;
-
-        var problem = new ProblemDetails
-        {
-            Status = status,
-            Title = title,
-            Detail = detail,
-            Instance = context.Request.Path
-        };
-        problem.Extensions["traceId"] = context.TraceIdentifier;
-
-        await context.Response.WriteAsJsonAsync(problem, options: null, contentType: "application/problem+json");
+        return ProblemResponses.WriteAsync(context, status, title, detail);
     }
 }

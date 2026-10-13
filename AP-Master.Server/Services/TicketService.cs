@@ -44,11 +44,13 @@ public interface ITicketService
 public class TicketService : ITicketService
 {
     private readonly TelegroupDbContext _dbContext;
+    private readonly ITicketNotifier _notifier;
     private readonly ILogger<TicketService> _logger;
 
-    public TicketService(TelegroupDbContext dbContext, ILogger<TicketService> logger)
+    public TicketService(TelegroupDbContext dbContext, ITicketNotifier notifier, ILogger<TicketService> logger)
     {
         _dbContext = dbContext;
+        _notifier = notifier;
         _logger = logger;
     }
 
@@ -106,6 +108,8 @@ public class TicketService : ITicketService
         _logger.LogInformation(
             "Created {Type} ticket {Reference} ({TicketId}) for customer {CustomerId} (conversation {ConversationId}): {Category}, {Severity}, escalated={Escalated}",
             type, ticket.Reference, ticket.Id, customerId, conversationId, ticket.Category, ticket.Severity, ticket.Escalated);
+
+        await _notifier.TicketCreatedAsync(ToResponse(ticket));
 
         return ticket;
     }
@@ -169,7 +173,9 @@ public class TicketService : ITicketService
 
         _logger.LogInformation("Ticket {Reference} ({TicketId}) status changed from {From} to {To}", ticket.Reference, id, previous, status);
 
-        return ToResponse(ticket);
+        var response = ToResponse(ticket);
+        await _notifier.TicketUpdatedAsync(response);
+        return response;
     }
 
     public async Task<TicketResponse> CloseAsync(int id, CancellationToken cancellationToken = default)
@@ -195,7 +201,9 @@ public class TicketService : ITicketService
 
         _logger.LogInformation("Ticket {Reference} ({TicketId}) manually escalated", ticket.Reference, id);
 
-        return ToResponse(ticket);
+        var response = ToResponse(ticket);
+        await _notifier.TicketUpdatedAsync(response);
+        return response;
     }
 
     private async Task<SupportTicket> FindTrackedAsync(int id, CancellationToken cancellationToken) =>
@@ -238,7 +246,8 @@ public class TicketService : ITicketService
         if (text.Contains("internet") || text.Contains("broadband"))
             return "Service";
 
-        if (text.Contains("technician") || text.Contains("technical"))
+        if (text.Contains("technician") || text.Contains("technical") || text.Contains("engineer") ||
+            text.Contains("router") || text.Contains("install"))
             return "Technical Support";
 
         return "General";

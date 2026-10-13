@@ -1,0 +1,133 @@
+# Continuous integration: every push and pull request builds both halves of the system,
+# runs all automated tests, and proves the Docker image starts and answers a chat message.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch cancels the run it replaces.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: Server - build, unit and integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # The server project references the client project (.esproj), which needs its npm packages.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ap-master.client/package-lock.json
+      - name: Install client packages
+        run: npm ci
+        working-directory: ap-master.client
+
+      - name: Restore
+        run: dotnet restore AP-Server-Tests/AP-Server-Tests.csproj
+
+      - name: Build
+        run: dotnet build AP-Server-Tests/AP-Server-Tests.csproj --configuration Release --no-restore
+
+      - name: Test
+        run: >
+          dotnet test AP-Server-Tests/AP-Server-Tests.csproj
+          --configuration Release --no-build
+          --logger "trx;LogFileName=server-tests.trx"
+          --logger "console;verbosity=normal"
+          --collect "XPlat Code Coverage"
+          --settings AP-Server-Tests/coverage.runsettings
+          --results-directory TestResults
+
+      - name: Upload test results and coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-test-results
+          path: TestResults
+
+  client:
+    name: Client - lint, type-check, build and tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ap-master.client
+    steps:
+      - uses: actions/checkout@v4
+
+      # vite.config.ts exports an ASP.NET Core development certificate with `dotnet dev-certs`.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ap-master.client/package-lock.json
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check and build
+        run: npm run build
+
+      - name: Test with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-coverage
+          path: ap-master.client/coverage
+
+  docker:
+    name: Docker image - build and smoke test
+    needs: [server, client]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build --file AP-Master.Server/Dockerfile --tag telegroup-chatbot:ci .
+
+      - name: Start container
+        run: docker run --detach --name chatbot --publish 8080:8080 telegroup-chatbot:ci
+
+      - name: Wait until healthy
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://localhost:8080/health; then exit 0; fi
+            sleep 2
+          done
+          echo "Container did not become healthy" >&2
+          exit 1
+
+      - name: Smoke test
+        run: |
+          curl --silent --fail http://localhost:8080/ | grep -q "<title>"
+          curl --silent --fail --header "Content-Type: application/json" \
+            --data '{"customerId":1,"message":"I need an engineer to install a new phone socket"}' \
+            http://localhost:8080/api/chat | grep -q '"ticketId"'
+
+      - name: Container logs
+        if: always()
+        run: docker logs chatbot
