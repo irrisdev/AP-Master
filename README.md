@@ -148,7 +148,7 @@ Open <http://localhost:8080>.
 - **AI key:** taken from `AI_API_KEY` in `.env` (git-ignored). Leave it empty to use the
   placeholder AI. `AI_MODEL` and `APP_PORT` can be set there too.
 - **Database:** SQLite, kept in the named volume `telegroup-data` outside the container. It is
-  created, migrated and seeded with the demo customers on first start. It survives rebuilds and
+  created, migrated and seeded with the demo customers and broadband packages on first start. It survives rebuilds and
   `docker compose down`; only `docker compose down -v` deletes it.
 
 Other commands:
@@ -175,7 +175,7 @@ environment variables, using `__` for nesting (e.g. `AI__MaxConcurrentRequests=8
 | Setting                                          | Default                                     | Purpose                                                                    |
 | ------------------------------------------------ | ------------------------------------------- | -------------------------------------------------------------------------- |
 | `ConnectionStrings:DefaultConnection`            | `Data Source=Development/Data/telegroup.db` | SQLite file. Relative paths resolve against the app folder on every OS.    |
-| `Database:MigrateOnStartup` / `SeedDemoData`     | `true` / `true`                             | Apply migrations and add the demo customers at start-up.                   |
+| `Database:MigrateOnStartup` / `SeedDemoData`     | `true` / `true`                             | Apply migrations and add the demo customers and packages at start-up.      |
 | `AI:ApiKey`                                      | none                                        | Provider key. Use user secrets or an environment variable, never the file. |
 | `AI:BaseUrl` / `AI:Model`                        | OpenRouter / `openrouter/free`              | Any OpenAI-compatible endpoint and model.                                  |
 | `AI:TimeoutSeconds`                              | `30`                                        | Per-call timeout before falling back.                                      |

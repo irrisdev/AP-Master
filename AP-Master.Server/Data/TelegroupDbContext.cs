@@ -14,6 +14,7 @@ public class TelegroupDbContext : DbContext
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<SupportTicket> SupportTickets => Set<SupportTicket>();
+    public DbSet<BroadbandPackage> BroadbandPackages => Set<BroadbandPackage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -69,6 +70,24 @@ public class TelegroupDbContext : DbContext
         modelBuilder.Entity<SupportTicket>()
             .HasIndex(t => t.Reference)
             .IsUnique();
+
+        // BroadbandPackage
+        modelBuilder.Entity<BroadbandPackage>()
+            .Property(p => p.Name)
+            .IsRequired()
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<BroadbandPackage>()
+            .HasIndex(p => p.Name)
+            .IsUnique();
+
+        modelBuilder.Entity<BroadbandPackage>()
+            .Property(p => p.MonthlyPrice)
+            .HasPrecision(8, 2);
+
+        modelBuilder.Entity<BroadbandPackage>()
+            .Property(p => p.Description)
+            .HasMaxLength(500);
 
         // Store enums as strings for easier database inspection
         modelBuilder.Entity<Conversation>()

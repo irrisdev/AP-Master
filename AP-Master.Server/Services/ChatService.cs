@@ -36,8 +36,9 @@ public class ChatService : IChatService
         something unrelated (for example household repairs like a broken toilet or boiler), politely explain
         that you can only help with Telegroup telecoms services, and do not offer to pass it on to anyone.
         If an earlier reply in this conversation dealt with an unrelated request by mistake, say so honestly.
-        You do not have Telegroup's current catalogue, so never quote prices, speeds, contract lengths or offers;
-        say the customer can see current packages and prices on the Telegroup website or ask to speak to the sales team.
+        Never quote prices, speeds, contract lengths or offers unless they appear in a package list given to you below.
+        If no list is given, or the customer asks about something it does not cover, say they can see current packages
+        and prices on the Telegroup website or ask to speak to the sales team.
         Never promise or estimate timescales, such as when someone will call, visit or fix something.
         Write in plain text without markdown formatting: no asterisks, hashes or tables.
         """;
@@ -54,6 +55,7 @@ public class ChatService : IChatService
     private readonly IClassificationService _classificationService;
     private readonly ITicketService _ticketService;
     private readonly IAIService _aiService;
+    private readonly IPackageCatalogueService _packageCatalogue;
     private readonly ITroubleshootingOutcomeDetector _outcomeDetector;
     private readonly ConversationLocks _conversationLocks;
     private readonly ILogger<ChatService> _logger;
@@ -65,6 +67,7 @@ public class ChatService : IChatService
         IClassificationService classificationService,
         ITicketService ticketService,
         IAIService aiService,
+        IPackageCatalogueService packageCatalogue,
         ITroubleshootingOutcomeDetector outcomeDetector,
         ConversationLocks conversationLocks,
         ILogger<ChatService> logger)
@@ -75,6 +78,7 @@ public class ChatService : IChatService
         _classificationService = classificationService;
         _ticketService = ticketService;
         _aiService = aiService;
+        _packageCatalogue = packageCatalogue;
         _outcomeDetector = outcomeDetector;
         _conversationLocks = conversationLocks;
         _logger = logger;
@@ -207,9 +211,10 @@ public class ChatService : IChatService
 
     private async Task<ChatResponse> HandleCustomerEnquiryAsync(Conversation conversation, string message, CancellationToken cancellationToken)
     {
-        const string systemPrompt = $"""
+        var systemPrompt = $"""
             You are the Telegroup Limited customer service assistant.
             {CompanyContext}
+            {await PackageListAsync(cancellationToken)}
             Answer the customer's latest message clearly, warmly and professionally.
             You can see the conversation so far: use it to understand follow-up questions such as
             "how much is that?" and do not repeat information you have already given.
@@ -460,6 +465,24 @@ public class ChatService : IChatService
                     "They'll be in touch shortly.";
 
         return await ReplyAsync(conversation, RequestType.ServiceIssue, reply, escalated: true, ticket: ticket, cancellationToken);
+    }
+
+    /// <summary>
+    /// The broadband packages on sale, as a prompt section. Without any, the AI is told it has no list,
+    /// so it falls back to pointing the customer at the website or the sales team.
+    /// </summary>
+    private async Task<string> PackageListAsync(CancellationToken cancellationToken)
+    {
+        var packages = await _packageCatalogue.GetPromptContextAsync(cancellationToken);
+        if (packages is null)
+            return "No package list is available.";
+
+        return $"""
+            Telegroup's current broadband packages. These are the only packages and prices you may quote;
+            never invent others or change their details. Help the customer choose by asking how they use the
+            internet if that would help, and recommend at most two packages.
+            {packages}
+            """;
     }
 
     private sealed record Acknowledgement(string? Text, bool OutOfScope);

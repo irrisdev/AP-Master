@@ -21,6 +21,7 @@ public static class DependencyInjection
         services.AddScoped<ICustomerService, CustomerService>();
         services.AddScoped<IConversationService, ConversationService>();
         services.AddScoped<IMessageService, MessageService>();
+        services.AddScoped<IPackageCatalogueService, PackageCatalogueService>();
         services.AddSingleton<RuleBasedClassifier>();
         services.AddSingleton<ITroubleshootingOutcomeDetector, TroubleshootingOutcomeDetector>();
 

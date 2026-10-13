@@ -86,6 +86,17 @@ Table SupportTickets {
   }
 }
 
+Table BroadbandPackages {
+  Id integer [pk, increment]
+  Name varchar(100) [not null, unique]
+  DownloadMbps integer [not null]
+  UploadMbps integer [not null]
+  MonthlyPrice decimal(8,2) [not null, note: 'Stored as TEXT by SQLite']
+  ContractMonths integer [not null]
+  Description varchar(500) [null]
+  IsAvailable boolean [not null, default: true, note: 'Only available packages are given to the AI']
+}
+
 // Customer 1 ── * Conversations (cascade delete)
 Ref: Conversations.CustomerId > Customers.Id [delete: cascade]
 

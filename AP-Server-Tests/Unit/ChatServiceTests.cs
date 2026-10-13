@@ -67,7 +67,51 @@ public class ChatServiceTests : IDisposable
         Assert.Null(response.TicketId);
     }
 
+    [Fact]
+    public async Task Enquiry_GivesTheAITheBroadbandPackagesToQuoteFrom()
+    {
+        string? prompt = null;
+        _harness.AI.ChatReply = (systemPrompt, _) => { prompt = systemPrompt; return "Fibre 150 is £29.99 a month."; };
+
+        await _harness.SendAsync("How much are your packages?");
+
+        Assert.NotNull(prompt);
+        Assert.Contains("only packages and prices you may quote", prompt);
+        Assert.Contains("- Fibre 150: 150 Mbps download, 30 Mbps upload, £29.99 a month, 24-month contract.", prompt);
+    }
+
+    [Fact]
+    public async Task Enquiry_WithNoPackagesOnSale_TellsTheAIItHasNoList()
+    {
+        await using (var context = _harness.Database.CreateContext())
+        {
+            context.BroadbandPackages.RemoveRange(context.BroadbandPackages);
+            await context.SaveChangesAsync();
+        }
+
+        string? prompt = null;
+        _harness.AI.ChatReply = (systemPrompt, _) => { prompt = systemPrompt; return "Please see our website."; };
+
+        await _harness.SendAsync("How much are your packages?");
+
+        Assert.NotNull(prompt);
+        Assert.Contains("No package list is available.", prompt);
+        Assert.DoesNotContain("Fibre 150", prompt);
+    }
+
     // ---------------------------------------------------------------- Story 2: technical support
+
+    [Fact]
+    public async Task TechnicalSupport_DoesNotGiveTheAIThePackageList()
+    {
+        string? prompt = null;
+        _harness.AI.ChatReply = (systemPrompt, _) => { prompt = systemPrompt; return "Sorry to hear that."; };
+
+        await _harness.SendAsync("I need an engineer to install a new phone socket");
+
+        Assert.NotNull(prompt);
+        Assert.DoesNotContain("Fibre 150", prompt);
+    }
 
     [Fact]
     public async Task TechnicalSupport_RaisesATicketStraightAway_AndEscalates()

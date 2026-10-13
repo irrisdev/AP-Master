@@ -1,4 +1,4 @@
-using AP_Master.Server.Concurrency;
+﻿using AP_Master.Server.Concurrency;
 using AP_Master.Server.DTOs.Chat;
 using AP_Master.Server.Services;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -23,7 +23,9 @@ public sealed class ChatHarness : IDisposable
         var classification = new ClassificationService(new RuleBasedClassifier(), AI, NullLogger<ClassificationService>.Instance);
         Tickets = new TicketService(context, Notifier, NullLogger<TicketService>.Instance);
 
-        Chat = new ChatService(customers, conversations, messages, classification, Tickets, AI,
+        Packages = new PackageCatalogueService(context, NullLogger<PackageCatalogueService>.Instance);
+
+        Chat = new ChatService(customers, conversations, messages, classification, Tickets, AI, Packages,
             new TroubleshootingOutcomeDetector(), new ConversationLocks(), NullLogger<ChatService>.Instance);
     }
 
@@ -31,6 +33,7 @@ public sealed class ChatHarness : IDisposable
     public ScriptedAIService AI { get; } = new();
     public RecordingTicketNotifier Notifier { get; } = new();
     public TicketService Tickets { get; }
+    public PackageCatalogueService Packages { get; }
     public ChatService Chat { get; }
 
     public Task<ChatResponse> SendAsync(string message, int? conversationId = null, int customerId = 1) =>
