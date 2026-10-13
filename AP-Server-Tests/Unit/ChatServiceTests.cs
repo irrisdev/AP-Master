@@ -163,6 +163,62 @@ public class ChatServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ServiceIssue_ReplyThatAsksAndGivesSteps_StillStartsTroubleshooting()
+    {
+        // Seen with a real model: it marked the reply as needing details but listed steps anyway.
+        _harness.AI.ChatReply = (_, _) =>
+            "[NEED_DETAILS] Is it every device?\n1. Restart your router.\n2. Move closer to the router.";
+
+        var response = await _harness.SendAsync("My wifi is really slow");
+
+        Assert.Equal(ConversationStatus.Troubleshooting, response.ConversationStatus);
+        Assert.Contains("Did that fix the problem?", response.Message);
+        Assert.DoesNotContain("[NEED_DETAILS]", response.Message);
+
+        var resolved = await _harness.SendAsync("Yes, that fixed it", response.ConversationId);
+        Assert.Equal(ConversationStatus.Resolved, resolved.ConversationStatus);
+    }
+
+    [Fact]
+    public async Task ServiceIssue_ReplyWithoutSteps_DoesNotAskWhetherTheyWorked()
+    {
+        _harness.AI.ChatReply = (_, _) => "That sounds frustrating. Is it affecting every device in the house?";
+
+        var response = await _harness.SendAsync("My internet keeps dropping out");
+
+        Assert.Equal(ConversationStatus.Active, response.ConversationStatus);
+        Assert.DoesNotContain("Did that fix", response.Message);
+    }
+
+    [Fact]
+    public async Task ServiceIssue_AfterATicketIsRaised_StillNotWorking_GoesToTheTicket_NotNewTroubleshooting()
+    {
+        // Seen with a real model: troubleshooting failed, a ticket was raised, and "still not working"
+        // then started troubleshooting again.
+        _harness.AI.Fail = true;
+        var escalated = await _harness.SendAsync("My internet keeps dropping out");
+        Assert.NotNull(escalated.TicketId);
+
+        _harness.AI.Fail = false;
+        var followUp = await _harness.SendAsync("No, it's still not working", escalated.ConversationId);
+
+        Assert.Equal(escalated.TicketId, followUp.TicketId);
+        Assert.Equal(ConversationStatus.Escalated, followUp.ConversationStatus);
+        Assert.DoesNotContain("Did that fix", followUp.Message);
+        Assert.Single(await LoadTicketsAsync(escalated.ConversationId));
+    }
+
+    [Fact]
+    public async Task Replies_AreShownAsPlainText_EvenWhenTheModelUsesMarkdown()
+    {
+        _harness.AI.ChatReply = (_, _) => "**Home broadband**\n\n* Fibre\n* Copper";
+
+        var response = await _harness.SendAsync("What broadband packages do you offer?");
+
+        Assert.Equal("Home broadband\n\n- Fibre\n- Copper", response.Message);
+    }
+
+    [Fact]
     public async Task ServiceIssue_WhenTroubleshootingIsUnavailable_GoesStraightToATicket()
     {
         _harness.AI.Fail = true;

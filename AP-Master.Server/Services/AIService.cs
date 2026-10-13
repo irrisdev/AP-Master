@@ -39,6 +39,15 @@ public class AIOptions
     /// <summary>Character budget for history, so long conversations don't exceed the model's context window.</summary>
     public int MaxHistoryCharacters { get; set; } = 12000;
 
+    /// <summary>
+    /// Attempts per request. Free models sometimes return an empty reply or a 5xx that succeeds on a
+    /// second try. Rate limits (429) and timeouts are not retried.
+    /// </summary>
+    public int MaxAttempts { get; set; } = 2;
+
+    /// <summary>Pause before a retry, in milliseconds.</summary>
+    public int RetryDelayMilliseconds { get; set; } = 750;
+
     /// <summary>Maximum AI calls in flight at once across the whole server (see AIRequestGate).</summary>
     public int MaxConcurrentRequests { get; set; } = 4;
 
@@ -52,7 +61,14 @@ public class AIOptions
 /// <summary>Any failure talking to the AI provider: timeout, network, HTTP error, bad or empty response.</summary>
 public class AIServiceException : Exception
 {
-    public AIServiceException(string message, Exception? innerException = null) : base(message, innerException) { }
+    public AIServiceException(string message, Exception? innerException = null, bool transient = false)
+        : base(message, innerException)
+    {
+        Transient = transient;
+    }
+
+    /// <summary>The same request might well succeed if sent again (empty reply, 429, 5xx, network blip).</summary>
+    public bool Transient { get; }
 }
 
 /// <summary>
@@ -101,6 +117,25 @@ public class AIService : IAIService
 
     private async Task<string> SendAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken)
     {
+        var attempts = Math.Max(1, _options.MaxAttempts);
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await SendOnceAsync(messages, cancellationToken);
+            }
+            catch (AIServiceException ex) when (ex.Transient && attempt < attempts)
+            {
+                _logger.LogWarning("AI attempt {Attempt} of {Attempts} failed ({Reason}); retrying",
+                    attempt, attempts, ex.Message);
+                await Task.Delay(Math.Max(0, _options.RetryDelayMilliseconds), cancellationToken);
+            }
+        }
+    }
+
+    private async Task<string> SendOnceAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken)
+    {
         var request = new ChatCompletionRequest(_options.Model, messages, _options.MaxTokens);
 
         var stopwatch = Stopwatch.StartNew();
@@ -117,7 +152,7 @@ public class AIService : IAIService
         }
         catch (HttpRequestException ex)
         {
-            throw new AIServiceException("Could not reach the AI provider.", ex);
+            throw new AIServiceException("Could not reach the AI provider.", ex, transient: true);
         }
 
         using (response)
@@ -128,7 +163,10 @@ public class AIService : IAIService
                 _logger.LogWarning("AI provider returned HTTP {StatusCode}: {Body}",
                     (int)response.StatusCode, body.Length > 500 ? body[..500] : body);
 
-                throw new AIServiceException($"AI provider returned HTTP {(int)response.StatusCode}.");
+                // 5xx is worth a second try. 429 is not: the provider is telling us to slow down (or, on
+                // OpenRouter's free tier, that the daily quota is spent), and retrying only burns more quota.
+                var status = (int)response.StatusCode;
+                throw new AIServiceException($"AI provider returned HTTP {status}.", transient: status >= 500);
             }
 
             ChatCompletionResponse? result;
@@ -143,11 +181,11 @@ public class AIService : IAIService
 
             // Some providers report errors inside a 200 response.
             if (result?.Error is not null)
-                throw new AIServiceException($"AI provider error: {result.Error.Message}");
+                throw new AIServiceException($"AI provider error: {result.Error.Message}", transient: true);
 
             var content = result?.Choices?.FirstOrDefault()?.Message?.Content?.Trim();
             if (string.IsNullOrEmpty(content))
-                throw new AIServiceException("AI provider returned an empty response.");
+                throw new AIServiceException("AI provider returned an empty response.", transient: true);
 
             _logger.LogInformation("AI response from {Model} in {ElapsedMs} ms",
                 result!.Model ?? _options.Model, stopwatch.ElapsedMilliseconds);

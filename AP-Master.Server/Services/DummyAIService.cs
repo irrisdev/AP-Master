@@ -8,9 +8,11 @@ namespace AP_Master.Server.Services;
 /// </summary>
 public class DummyAIService : IAIService
 {
+    // A numbered list, like a real model's steps: ChatService only starts troubleshooting when it sees one.
     private const string TroubleshootingReply =
-        "Please try restarting your router by switching it off for 30 seconds, " +
-        "then check whether the problem continues.";
+        "Here are a couple of things to try:\n" +
+        "1. Switch your router off at the wall for 30 seconds, then back on.\n" +
+        "2. Check the cable between the router and the wall socket is pushed fully in.";
 
     private const string GeneralReply =
         "Thanks for your message. This is a sample reply because no AI provider is configured; " +
