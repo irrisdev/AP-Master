@@ -368,7 +368,12 @@ export class MockApiClient implements ApiClient {
 
         // Never open a second complaint or support ticket for the same problem in one conversation.
         const openSupportTicket = this.openTicketFor(conversation.id, false);
-        if (requestType === RequestType.TechnicalSupport && openSupportTicket) {
+        // A service issue counts too: once a ticket exists, "still not working" is news for the
+        // technician, not a reason to start troubleshooting again (mirrors ChatService).
+        if (
+            (requestType === RequestType.TechnicalSupport || requestType === RequestType.ServiceIssue) &&
+            openSupportTicket
+        ) {
             return this.reply(conversation, conversation.requestType, replies.openTicket(openSupportTicket), true, openSupportTicket);
         }
 

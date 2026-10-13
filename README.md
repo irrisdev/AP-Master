@@ -179,6 +179,7 @@ environment variables, using `__` for nesting (e.g. `AI__MaxConcurrentRequests=8
 | `AI:ApiKey`                                      | none                                        | Provider key. Use user secrets or an environment variable, never the file. |
 | `AI:BaseUrl` / `AI:Model`                        | OpenRouter / `openrouter/free`              | Any OpenAI-compatible endpoint and model.                                  |
 | `AI:TimeoutSeconds`                              | `30`                                        | Per-call timeout before falling back.                                      |
+| `AI:MaxAttempts` / `RetryDelayMilliseconds`      | `2` / `750`                                 | Retry an empty reply or 5xx once. Rate limits (429) are never retried.     |
 | `AI:MaxHistoryMessages` / `MaxHistoryCharacters` | `20` / `12000`                              | How much of the conversation is sent as context.                           |
 | `AI:MaxConcurrentRequests`                       | `4`                                         | AI calls allowed in flight across the whole server.                        |
 | `AI:QueueTimeoutSeconds`                         | `10`                                        | How long a request waits for a free AI slot before using its fallback.     |

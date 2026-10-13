@@ -108,6 +108,22 @@ describe('MockApiClient mirrors the server contract', () => {
         expect(second.ticketReference).toBe(first.ticketReference);
     });
 
+    it('treats "still not working" after a ticket as news for the technician, not new troubleshooting', async () => {
+        const api = client();
+        const issue = await api.sendMessage({ customerId: 1, message: 'My broadband is slow' });
+        const ticketed = await api.sendMessage({ customerId: 1, conversationId: issue.conversationId, message: 'No, still not working' });
+
+        const again = await api.sendMessage({
+            customerId: 1,
+            conversationId: issue.conversationId,
+            message: 'It is still slow and not working today',
+        });
+
+        expect(again.ticketId).toBe(ticketed.ticketId);
+        expect(again.message).not.toMatch(/Did that fix the problem/);
+        expect(again.conversationStatus).toBe(ConversationStatus.Escalated);
+    });
+
     it('pushes ticket events to subscribers, like the server hub', async () => {
         const api = client();
         const created: TicketDto[] = [];
